@@ -10,7 +10,8 @@ class distillation_DDPM_trainer(nn.Module):
     self.T_model = T_model
     self.S_model = S_model
     self.T_sampler = T_sampler
-    self.S_sampler = S_sampler   
+    self.S_sampler = S_sampler
+    self.distill_features = distill_features
         
   def forward(self, x_t, c, t, CFG_scale=1):
         """
