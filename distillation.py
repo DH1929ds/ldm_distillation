@@ -1,45 +1,33 @@
+import copy
+import json
+import os
+import warnings
+import argparse
+
+import torch.nn.init as init
 import torch
 from omegaconf import OmegaConf
 import numpy as np
 from PIL import Image
 from einops import rearrange
-from torchvision.utils import make_grid
+from torchvision.utils import make_grid, save_image
+from diffusers.optimization import get_scheduler
+from absl import app, args
+from tqdm import trange
+from tqdm import tqdm
+import time
+import wandb
+from pytorch_lightning import seed_everything
 
 from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
-from absl import app, flags
-import warnings
-
-from omegaconf import OmegaConf
-import random
-import os
-import math
-import wandb
-import random
-import logging
-import inspect
-import argparse
-import datetime
-import subprocess
-import warnings
-import threading
-import GPUtil
-import diffusers
-import argparse, os, sys, glob, yaml, math, random
-from diffusers.optimization import get_scheduler
-from diffusion import GaussianDiffusion_distillation_Trainer, GaussianDiffusionTrainer, GaussianDiffusionSampler, distillation_cache_Trainer, GaussianDiffusion_joint_Sampler
-from pytorch_lightning import seed_everything
-import torch.nn.init as init
-
 from trainer import distillation_DDPM_trainer
-from funcs import load_model_from_config, get_model_teacher, load_model_from_config_without_ckpt, get_model_student, initialize_params, sample_save_images, save_checkpoint
+
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
 def get_parser():
     parser = argparse.ArgumentParser()
-    
-    parser.add_argument("--seed", type=int, default=20240911, help="seed for seed_everything")
 
     parser.add_argument("--learning_rate", type=float, default=3e-5, help="Learning rate for training")
     parser.add_argument("--scale_lr", type=bool, default=False, help="Flag to scale learning rate")
@@ -49,71 +37,55 @@ def get_parser():
 
     
     parser.add_argument("--trainable_modules", type=tuple, default=(None,), help="Tuple of trainable modules")
+    parser.add_argument("--num_workers", type=int, default=32, help="Number of workers for data loading")
     parser.add_argument("--train_batch_size", type=int, default=4, help="Batch size for training")
     parser.add_argument("--adam_beta1", type=float, default=0.9, help="Beta1 parameter for Adam optimizer")
     parser.add_argument("--adam_beta2", type=float, default=0.999, help="Beta2 parameter for Adam optimizer")
     parser.add_argument("--adam_weight_decay", type=float, default=1e-2, help="Weight decay for Adam optimizer")
-    parser.add_argument("--adam_epsilon", type=float, default=1e-08, help="Epsilon parameter for Adam optimizer")
 
-    # Gaussian Diffusion
-    parser.add_argument("--beta_1", type=float, default=1e-4, help='start beta value')
-    parser.add_argument("--beta_T", type=float, default=0.02, help='end beta value')
-    parser.add_argument("--T", type=int, default=1000, help='total diffusion steps')
-    parser.add_argument("--mean_type", type=str, choices=['xprev', 'xstart', 'epsilon'], default='epsilon', help='predict variable')
-    parser.add_argument("--var_type", type=str, choices=['fixedlarge', 'fixedsmall'], default='fixedlarge', help='variance type')
-    
-    # Training
-    parser.add_argument("--lr", type=float, default=1e-5, help='target learning rate')
-    parser.add_argument("--grad_clip", type=float, default=1., help="gradient norm clipping")
-    parser.add_argument("--total_steps", type=int, default=800000, help='total training steps')
-    parser.add_argument("--img_size", type=int, default=32, help='image size')
-    parser.add_argument("--warmup", type=int, default=5000, help='learning rate warmup')
-    parser.add_argument("--batch_size", type=int, default=128, help='batch size')
-    parser.add_argument("--num_workers", type=int, default=4, help='workers of Dataloader')
-    parser.add_argument("--ema_decay", type=float, default=0.9999, help="ema decay rate")
-    parser.add_argument("--parallel", action='store_true', help='multi gpu training')
-    parser.add_argument("--distill_features", action='store_true', default=True, help='perform knowledge distillation using intermediate features')
-    
-    # Logging & Sampling
-    parser.add_argument("--logdir", type=str, default='./logs/DDPM_CIFAR10_EPS', help='log directory')
-    parser.add_argument("--sample_size", type=int, default=32, help="sampling size of images")
-    parser.add_argument("--sample_step", type=int, default=10000, help='frequency of sampling')
-    
-    # WandB 관련 FLAGS 추가
-    parser.add_argument("--wandb_project", type=str, default='distill_caching_ddpm', help='WandB project name')
-    parser.add_argument("--wandb_run_name", type=str, default=None, help='WandB run name')
-    parser.add_argument("--wandb_notes", type=str, default='', help='Notes for the WandB run')
-    
-    # Evaluation
-    parser.add_argument("--save_step", type=int, default=50000, help='frequency of saving checkpoints, 0 to disable during training')
-    parser.add_argument("--eval_step", type=int, default=100000, help='frequency of evaluating model, 0 to disable during training')
-    parser.add_argument("--num_images", type=int, default=50000, help='the number of generated images for evaluation')
-    parser.add_argument("--fid_use_torch", action='store_true', help='calculate IS and FID on gpu')
-    parser.add_argument("--fid_cache", type=str, default='./stats/cifar10.train.npz', help='FID cache')
-    
-    # Caching
-    parser.add_argument("--cache_n", type=int, default=64, help='size of caching data per timestep')
-    parser.add_argument('--cachedir', type=str, default='./cache', help='log directory')
-    parser.add_argument("--is_precache", action="store_true", help="whether to perform pre-caching")
-
-
-
-    #DDIM Sampling
-    parser.add_argument("--DDIM_num_steps", type=int, default=50, help='number of DDIM samping steps')
-
-    parser.add_argument("--num_sample_class", type=int, default=4, help='number of class for save and sampling')
-    parser.add_argument("--n_sample_per_class", type=int, default=16, help='number of sample for per class in save_sample')
-
-    parser.add_argument("--sample_save_ddim_steps", type=int, default=20, help='number of DDIM sampling steps')
-    parser.add_argument("--ddim_eta", type=float, default=1.0, help='DDIM eta parameter for noise level')
-    parser.add_argument("--scale", type=float, default=1.5, help='guidance scale for unconditional guidance')
-
-    #Directory
-    parser.add_argument('--logdir', type=str, default='./logs', help='log directory')
-
-
-    
     return parser
+
+def load_model_from_config(config, ckpt):
+    print(f"Loading model from {ckpt}")
+    pl_sd = torch.load(ckpt)  # , map_location="cpu")
+    sd = pl_sd["state_dict"]
+    model = instantiate_from_config(config.model)
+    m, u = model.load_state_dict(sd, strict=False)
+    for param in model.parameters():
+        param.requires_grad = False
+    model.cuda()
+    model.eval()
+    return model
+
+
+def get_model_teacher():
+    config = OmegaConf.load("configs/latent-diffusion/cin256-v2.yaml")
+    model = load_model_from_config(config, "models/ldm/cin256-v2/model.ckpt")
+    return model
+
+def load_model_from_config_without_ckpt(config):
+    print("Initializing model without checkpoint")
+    model = instantiate_from_config(config.model)
+    for param in model.parameters():
+        param.requires_grad = True
+    model.cuda()  # 모델을 CUDA로 이동 (필요한 경우)
+    model.eval()  # 평가 모드로 설정
+    return model
+
+def get_model_student():
+    config = OmegaConf.load("configs/latent-diffusion/cin256-v2.yaml")
+    model = load_model_from_config_without_ckpt(config)
+    return model
+
+def initialize_params(model):
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                if param.dim() > 1:  # Convolutional layers and Linear layers typically have more than 1 dimension
+                    init.xavier_uniform_(param)
+                else:
+                    init.zeros_(param)
+
+
 
 def distillation(args):
 
@@ -129,31 +101,13 @@ def distillation(args):
             "epochs": args.total_steps,
         }
     )
-    
+
     T_model = get_model_teacher()
     S_model= get_model_student()
-    initialize_params(student_model)
-
-    all_params_student = list(S_model.parameters())
-    trainable_params_student = list(filter(lambda p: p.requires_grad, S_model.parameters()))
-    
-    all_params_teacher = list(T_model.parameters())
-    trainable_params_teacher = list(filter(lambda p: p.requires_grad, T_model.parameters()))
-    
-    num_all_params_student= sum(p.numel() for p in all_params_student)
-    num_trainable_params_student = sum(p.numel() for p in trainable_params_student)
-
-    num_trainable_params_teacher = sum(p.numel() for p in trainable_params_teacher)
-    num_all_params_teacher = sum(p.numel() for p in all_params_teacher)
-    
-    print(f"Student: Number of All parameters: {num_all_params_student}")
-    print(f"Student: Number of trainable parameters: {num_trainable_params_student}")
-
-    print(f"Teacher: Number of All parameters: {num_all_params_teacher}")
-    print(f"Teacher: Number of trainable parameters: {num_trainable_params_teacher}")
+    initialize_params(S_model)
 
     optimizer = torch.optim.AdamW(
-        trainable_params_student,
+        S_model,
         lr=args.learning_rate,
         betas=(args.adam_beta1, args.adam_beta2),
         weight_decay=args.adam_weight_decay,
@@ -164,7 +118,7 @@ def distillation(args):
         args.lr_scheduler,
         optimizer=optimizer,
         num_warmup_steps=args.lr_warmup_steps * args.gradient_accumulation_steps,
-        num_training_steps=args.total_steps
+        num_training_steps=args.max_train_steps * args.gradient_accumulation_steps,
     )
 
     T_sampler = DDIMSampler(T_model)
@@ -176,74 +130,42 @@ def distillation(args):
     trainer = distillation_DDPM_trainer(
         T_model, S_model, T_sampler, S_sampler, args.train_is_feature, args.beta_1, args.beta_T, args.T,
         args.mean_type, args.var_type, args.distill_features).to(device)
+    
 
-    if args.is_precache:
-        ############################################ precacheing ##################################################
-        cache_size = args.cache_n*1000
-        
-        img_cache = torch.randn(cache_size, T_model.channels, T_model.img_size, T_model.img_size).to(device)
-        t_cache = torch.ones(cache_size, dtype=torch.long, device=device)*(T_model.timestep-1)
-        class_cache = torch.randint(0, 950, (cache_size,), device=device)
+    cache_size = args.cache_n*1000
     
-        # 10%의 인덱스를 무작위로 선택하여 1000으로 설정
-        num_to_replace = int(cache_size * 0.1)  # 전체 크기의 10%
-        indices = torch.randperm(cache_size)[:num_to_replace]  # 랜덤으로 인덱스 선택
-        class_cache[indices] = 1000
+    img_cache = torch.randn(cache_size, T_model.channels, T_model.img_size, T_model.img_size).to(device)
+    t_cache = torch.ones(cache_size, dtype=torch.long, device=device)*(T_model.timestep-1)
+    class_cache = torch.randint(0, 950, (cache_size,), device=device)
+
+    # 10%의 인덱스를 무작위로 선택하여 1000으로 설정
+    num_to_replace = int(cache_size * 0.1)  # 전체 크기의 10%
+    indices = torch.randperm(cache_size)[:num_to_replace]  # 랜덤으로 인덱스 선택
+    class_cache[indices] = 1000
     
-        
-        # img_cache = torch.load("img_cache_cache.pt")
-        # t_cache = torch.load("t_cache_cache.pt")
-    
-        # if img_cache, t_cache exists:
-        #     img_cache = torch.load("img_cache_cache.pt")
-        #     t_cache = torch.load("t_cache_cache.pt")
-    
-        # else:
-        with torch.no_grad():
-            for i in range(T_model.timestep):
-                start_time = time.time()
-                
-                start_idx = (i * args.cache_n)
-                end_idx = start_idx + args.cache_n
-                
-                # 슬라이스 처리
-                img_batch = img_cache[start_idx:end_idx]
-                t_batch = t_cache[start_idx:end_idx]
-                class_batch = class_cache[start_idx:end_idx]
-                
-                c = T_model.get_learned_conditioning(
-                            {T_model.cond_stage_key: class_batch})
-                
-                
-                img_cache[i:end_idx] = T_sampler.DDPM_target_t(img_batch, c, target_t = i)
-                t_cache[start_idx:end_idx] = torch.ones(args.cache_n, dtype=torch.long, device=device)*(i)
-     
-                print(f"start_idx: {i}, end_idx: {end_idx}")
-    
-                elapsed_time = time.time() - start_time
-                print(f"Iteration {i + 1}/{T_model.timestep} completed in {elapsed_time:.2f} seconds.")
-    
-            save_dir = f"./{args.cachedir}/{args.cache_n}"
-            if not os.path.exists(save_dir):
-                os.makedirs(save_dir)
+    with torch.no_grad():
+        for i in range(T_model.timestep):
+            start_time = time.time()
             
-            # Save img_cache, t_cache, and class_cache as .pt files
-            torch.save(img_cache, f"{save_dir}/img_cache_{args.cache_n}.pt")
-            torch.save(t_cache, f"{save_dir}/t_cache_{args.cache_n}.pt")
-            torch.save(class_cache, f"{save_dir}/class_cache_{args.cache_n}.pt")
-    
-        print(f"Pre-caching completed and saved to {args.cachedir}")
-    
-        ############################################ precacheing ##################################################
+            start_idx = (i * args.cache_n)
+            end_idx = start_idx + args.cache_n
+            
+            # 슬라이스 처리
+            img_batch = img_cache[start_idx:end_idx]
+            t_batch = t_cache[start_idx:end_idx]
+            class_batch = class_cache[start_idx:end_idx]
+            
+            c = T_model.get_learned_conditioning(
+                        {T_model.cond_stage_key: class_batch})
+            
+            
+            img_cache[i:end_idx] = T_sampler.DDPM_target_t(img_batch, c, target_t = i)
+            t_cache[start_idx:end_idx] = torch.ones(args.cache_n, dtype=torch.long, device=device)*(i)
+ 
+            print(f"start_idx: {i}, end_idx: {end_idx}")
 
-
-    img_cache = torch.load(f"{save_dir}/img_cache_{args.cache_n}.pt").to(device)
-    t_cache = torch.load(f"{save_dir}/t_cache_{args.cache_n}.pt").to(device)
-    class_cache = torch.load(f"{save_dir}/class_cache_{args.cache_n}.pt").to(device)
-
-    
-
-        # pt로 image_cache, t_cache 저장
+            elapsed_time = time.time() - start_time
+            print(f"Iteration {i + 1}/{T_model.timestep} completed in {elapsed_time:.2f} seconds.")
 
     # with torch.no_grad():
     #     for i in range(0, cache_size, args.cache_n):
@@ -356,12 +278,9 @@ def distillation(args):
             pbar.set_postfix(distill_loss='%.3f' % total_loss.item())
              
             ################### Sample and save student outputs############################
-            if args.sample_step > 0 and step % args.sample_step == 0:
-                sample_save_images(args.num_sample_class, args.n_sample_per_class, args.sample_save_ddim_steps, args.eta, args.cfg_scale, T_model, S_model)
 
             ################### Save student model ################################
-            if args.save_step > 0 and step % args.save_step == 0:
-                save_checkpoint(S_model, lr_scheduler, optimizer, step, args.logdir)
+
             ################### Evaluate student model ##############################
 
     wandb.finish()
