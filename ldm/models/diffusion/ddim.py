@@ -202,7 +202,31 @@ class DDIMSampler(object):
             noise = torch.nn.functional.dropout(noise, p=noise_dropout)
         x_prev = a_prev.sqrt() * pred_x0 + dir_xt + noise
         return x_prev, pred_x0
+    
+    @torch.no_grad()
+    def caching_target_t(self, x, c, target_t = 1000):
+        device = self.model.betas.device
+        b = x.shape[0]
 
+        time_range = reversed(range(0,target_t))
+        total_steps = 1000 - target_t
+        
+        print(f"Running DDPM Sampling until the {target_t} time step.")
+
+        iterator = tqdm(time_range, desc='DDPM Sampler', total=total_steps)
+        
+        
+        for i, step in enumerate(iterator):
+            index = 1000 - i - 1
+            ts = torch.full((b,), step, device=device, dtype=torch.long)
+
+
+            outs = self.p_sample_ddim(img, c, ts, index=index, use_original_steps = True,
+                                      unconditional_conditioning=None)
+            img, pred_x0 = outs
+                
+        return img
+    
     @torch.no_grad()
     def cache_step(self, x, c, t, index, repeat_noise=False, use_original_steps=False, quantize_denoised=False,
                       temperature=1., noise_dropout=0., score_corrector=None, corrector_kwargs=None,

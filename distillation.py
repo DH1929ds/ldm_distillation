@@ -142,33 +142,72 @@ def distillation(args):
     num_to_replace = int(cache_size * 0.1)  # 전체 크기의 10%
     indices = torch.randperm(cache_size)[:num_to_replace]  # 랜덤으로 인덱스 선택
     class_cache[indices] = 1000
-
+    
     with torch.no_grad():
-        for i in range(0, cache_size, args.batch_size):
-            # 슬라이스의 끝 인덱스가 전체 크기를 초과하지 않도록 min 사용
-            end_idx = min(i + args.batch_size, cache_size)
+        for i in range(T_model.timestep):
+            start_time = time.time()
+            
+            start_idx = (i * args.cache_n)
+            end_idx = start_idx + args.cache_n
             
             # 슬라이스 처리
-            img_batch = img_cache[i:end_idx]
-            t_batch = t_cache[i:end_idx]
-            class_batch = class_cache[i:end_idx]
-            
-            uc = T_model.get_learned_conditioning(
-                        {T_model.cond_stage_key: torch.tensor(img_batch.shape[0] * [1000]).to(device)}
-                    )
+            img_batch = img_cache[start_idx:end_idx]
+            t_batch = t_cache[start_idx:end_idx]
+            class_batch = class_cache[start_idx:end_idx]
             
             c = T_model.get_learned_conditioning(
                         {T_model.cond_stage_key: class_batch})
+            
+            
+            img_cache[i:end_idx] = T_sampler.caching_target_t(img_batch, c, target_t = t_batch)
+            t_cache[start_idx:end_idx] = torch.ones(args.cache_n, dtype=torch.long, device=device)*(i)
+ 
+            print(f"start_idx: {i}, end_idx: {end_idx}")
 
-            img_cache[i:end_idx], _ = T_sampler.X0_DDPM(S=args.ddim_steps,
-                                            conditioning=c,
-                                            ddim_use_original_steps = True, #True  #### DDIM for cache??
-                                            batch_size=img_batch.shape[0],
-                                            shape=[3, 64, 64],
-                                            verbose=False,
-                                            unconditional_guidance_scale=args.CFG_scale, #우선 1로
-                                            unconditional_conditioning=uc,
-                                            eta=1)
+            elapsed_time = time.time() - start_time
+            print(f"Iteration {i + 1}/{T_model.timestep} completed in {elapsed_time:.2f} seconds.")
+
+    # with torch.no_grad():
+    #     for i in range(0, cache_size, args.cache_n):
+    #         start_time = time.time()
+            
+    #         # 슬라이스의 끝 인덱스가 전체 크기를 초과하지 않도록 min 사용
+    #         end_idx = min(i + args.cache_n, cache_size)
+            
+    #         # 슬라이스 처리
+    #         img_batch = img_cache[i:end_idx]
+    #         t_batch = t_cache[i:end_idx]
+    #         class_batch = class_cache[i:end_idx]
+            
+    #         c = T_model.get_learned_conditioning(
+    #                     {T_model.cond_stage_key: class_batch})
+            
+            
+    #         img_cache[i:end_idx] = T_sampler.caching_target_t(img_batch, c, target_t = t_batch)
+ 
+    #         print(f"start_idx: {i}, end_idx: {end_idx}")
+
+    #         elapsed_time = time.time() - start_time
+    #         print(f"Iteration {i + 1}/{T_model.timestep} completed in {elapsed_time:.2f} seconds.")
+            
+            
+            #################### X0 caching #######################
+            # uc = T_model.get_learned_conditioning(
+            #             {T_model.cond_stage_key: torch.tensor(img_batch.shape[0] * [1000]).to(device)}
+            #         )
+            
+            # c = T_model.get_learned_conditioning(
+            #             {T_model.cond_stage_key: class_batch})
+
+            # img_cache[i:end_idx], _ = T_sampler.X0_DDPM(S=args.ddim_steps,
+            #                                 conditioning=c,
+            #                                 ddim_use_original_steps = True, #True  #### DDIM for cache??
+            #                                 batch_size=img_batch.shape[0],
+            #                                 shape=[3, 64, 64],
+            #                                 verbose=False,
+            #                                 unconditional_guidance_scale=args.CFG_scale, #우선 1로
+            #                                 unconditional_conditioning=uc,
+            #                                 eta=1)
                     
     ##################################
 
