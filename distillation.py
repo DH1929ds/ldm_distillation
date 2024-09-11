@@ -135,8 +135,8 @@ def distillation(args):
     cache_size = args.cache_n*1000
     
     img_cache = torch.randn(cache_size, T_model.channels, T_model.img_size, T_model.img_size).to(device)
-    t_cache = torch.ones(cache_size, dtype=torch.long, device=device)*(args.T-1)
-    class_cache = torch.randint(0, 1000, (cache_size,), device=device)
+    t_cache = torch.ones(cache_size, dtype=torch.long, device=device)*(T_model.timestep-1)
+    class_cache = torch.randint(0, 950, (cache_size,), device=device)
 
     # 10%의 인덱스를 무작위로 선택하여 1000으로 설정
     num_to_replace = int(cache_size * 0.1)  # 전체 크기의 10%
