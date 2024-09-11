@@ -159,7 +159,7 @@ def distillation(args):
                         {T_model.cond_stage_key: class_batch})
             
             
-            img_cache[i:end_idx] = T_sampler.caching_target_t(img_batch, c, target_t = t_batch)
+            img_cache[i:end_idx] = T_sampler.DDPM_target_t(img_batch, c, target_t = i)
             t_cache[start_idx:end_idx] = torch.ones(args.cache_n, dtype=torch.long, device=device)*(i)
  
             print(f"start_idx: {i}, end_idx: {end_idx}")
@@ -225,27 +225,38 @@ def distillation(args):
                         {T_model.cond_stage_key: class_cache[indices]})
             
             # Calculate distillation loss
-            output_loss, x_t_, total_loss = trainer(x_t, c, t, args.CFG_scale)
+            output_loss, total_loss, x_prev = trainer(x_t, c, t, args.CFG_scale)
 
             # Backward and optimize
             total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(S_model.parameters(), args.grad_clip)
+            # torch.nn.utils.clip_grad_norm_(S_model.parameters(), args.grad_clip)
+            
             optimizer.step()
             lr_scheduler.step()
 
             ### cache update ###
-            img_cache[indices] = x_t_
+            img_cache[indices] = x_prev
             t_cache[indices] -= 1
             
-            num_999 = torch.sum(t_cache == (args.T - 1)).item()
+            # num_999 = torch.sum(t_cache == (args.T - 1)).item()
 
-            if num_999 < args.cache_n:
-                missing_999 = args.cache_n - num_999
-                non_999_indices = (t_cache != (args.T - 1)).nonzero(as_tuple=True)[0]
-                random_indices = torch.randperm(non_999_indices.size(0), device=device)[:missing_999]
-                selected_indices = non_999_indices[random_indices]
-                t_cache[selected_indices] = args.T - 1
-                img_cache[selected_indices] = torch.randn(missing_999, 3, args.img_size, args.img_size, device=device)
+            # if num_999 < args.cache_n:
+            #     missing_999 = args.cache_n - num_999
+            #     non_999_indices = (t_cache != (args.T - 1)).nonzero(as_tuple=True)[0]
+            #     random_indices = torch.randperm(non_999_indices.size(0), device=device)[:missing_999]
+            #     selected_indices = non_999_indices[random_indices]
+            #     t_cache[selected_indices] = args.T - 1
+            #     img_cache[selected_indices] = torch.randn(missing_999, 3, args.img_size, args.img_size, device=device)
+
+            # # t_cache에서 값이 0인 인덱스를 찾아 초기화
+            # zero_indices = (t_cache < 0).nonzero(as_tuple=True)[0]
+            # num_zero_indices = zero_indices.size(0)
+
+            # # 0인 인덱스가 있는 경우에만 초기화 수행
+            # if num_zero_indices > 0:
+            #     # 0인 인덱스를 1에서 args.T-1 사이의 랜덤한 정수로 초기화
+            #     t_cache[zero_indices] = torch.randint(0, args.T, size=(num_zero_indices,), dtype=torch.long, device=device)
+            #     img_cache[zero_indices] = trainer.diffusion(img_cache[zero_indices],t_cache[zero_indices])
 
             # t_cache에서 값이 0인 인덱스를 찾아 초기화
             zero_indices = (t_cache < 0).nonzero(as_tuple=True)[0]
@@ -254,10 +265,11 @@ def distillation(args):
             # 0인 인덱스가 있는 경우에만 초기화 수행
             if num_zero_indices > 0:
                 # 0인 인덱스를 1에서 args.T-1 사이의 랜덤한 정수로 초기화
-                t_cache[zero_indices] = torch.randint(0, args.T, size=(num_zero_indices,), dtype=torch.long, device=device)
-                img_cache[zero_indices] = trainer.diffusion(img_cache[zero_indices],t_cache[zero_indices])
+                t_cache[zero_indices] = torch.ones(num_zero_indices, dtype=torch.long, device=device) *(T_model.timestep-1)
+                img_cache[zero_indices] = torch.randn(num_zero_indices, T_model.channels, T_model.img_size, T_model.img_size).to(device)
 
-
+            
+            
             # Logging with WandB
             wandb.log({
                 'distill_loss': total_loss.item(),

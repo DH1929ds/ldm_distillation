@@ -204,9 +204,12 @@ class DDIMSampler(object):
         return x_prev, pred_x0
     
     @torch.no_grad()
-    def caching_target_t(self, x, c, target_t = 1000):
+    def DDPM_target_t(self, x_T, c, target_t = 1000):
         device = self.model.betas.device
-        b = x.shape[0]
+        b = x_T.shape[0]
+        img = x_T
+
+
 
         time_range = reversed(range(0,target_t))
         total_steps = 1000 - target_t
@@ -271,8 +274,6 @@ class DDIMSampler(object):
         
         return x_prev, pred_x0 , model_output  ## x_prev와 pred_x0은 CFG 사용한 결과임
     
-    
-    ## index => t로 고침, DDIM setting에서는 안 돎! DDIM에서의 유효성 검사 필요
     
     @torch.no_grad()
     def X0_DDPM(self,
