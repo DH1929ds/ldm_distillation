@@ -209,20 +209,16 @@ class DDIMSampler(object):
         b = x_T.shape[0]
         img = x_T
 
-
-
-        time_range = reversed(range(0,target_t))
+        
         total_steps = 1000 - target_t
+        time_range = reversed(range(0, total_steps))
         
-        print(f"Running DDPM Sampling until the {target_t} time step.")
-
         iterator = tqdm(time_range, desc='DDPM Sampler', total=total_steps)
-        
+
         
         for i, step in enumerate(iterator):
             index = 1000 - i - 1
             ts = torch.full((b,), step, device=device, dtype=torch.long)
-
 
             outs = self.p_sample_ddim(img, c, ts, index=index, use_original_steps = True,
                                       unconditional_conditioning=None)
