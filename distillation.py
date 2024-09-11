@@ -29,7 +29,7 @@ from diffusers.optimization import get_scheduler
 from pytorch_lightning import seed_everything
 
 from trainer import distillation_DDPM_trainer
-from funcs import load_model_from_config, get_model_teacher, load_model_from_config_without_ckpt, get_model_student, initialize_params, sample_save_images, save_checkpoint
+from funcs import load_model_from_config, get_model_teacher, load_model_from_config_without_ckpt, get_model_student, initialize_params, sample_save_images, save_checkpoint, print_gpu_memory_usage
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -38,13 +38,6 @@ def get_parser():
     parser = argparse.ArgumentParser()
     
     parser.add_argument("--seed", type=int, default=20240911, help="seed for seed_everything")
-
-    parser.add_argument("--learning_rate", type=float, default=3e-5, help="Learning rate for training")
-    parser.add_argument("--scale_lr", type=bool, default=False, help="Flag to scale learning rate")
-    parser.add_argument("--lr_warmup_steps", type=int, default=0, help="Number of learning rate warmup steps")
-    parser.add_argument("--lr_scheduler", type=str, default="constant", help="Learning rate scheduler type")
-    parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Number of gradient accumulation steps")
-
     
     parser.add_argument("--trainable_modules", type=tuple, default=(None,), help="Tuple of trainable modules")
     parser.add_argument("--train_batch_size", type=int, default=4, help="Batch size for training")
@@ -61,7 +54,11 @@ def get_parser():
     parser.add_argument("--var_type", type=str, choices=['fixedlarge', 'fixedsmall'], default='fixedlarge', help='variance type')
     
     # Training
-    parser.add_argument("--lr", type=float, default=1e-5, help='target learning rate')
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate for training")
+    parser.add_argument("--scale_lr", type=bool, default=False, help="Flag to scale learning rate")
+    parser.add_argument("--lr_warmup_steps", type=int, default=0, help="Number of learning rate warmup steps")
+    parser.add_argument("--lr_scheduler", type=str, default="constant", help="Learning rate scheduler type")
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Number of gradient accumulation steps")
     parser.add_argument("--grad_clip", type=float, default=1., help="gradient norm clipping")
     parser.add_argument("--total_steps", type=int, default=800000, help='total training steps')
     parser.add_argument("--img_size", type=int, default=32, help='image size')
@@ -104,7 +101,8 @@ def get_parser():
 
     parser.add_argument("--sample_save_ddim_steps", type=int, default=20, help='number of DDIM sampling steps')
     parser.add_argument("--ddim_eta", type=float, default=1.0, help='DDIM eta parameter for noise level')
-    parser.add_argument("--scale", type=float, default=1.5, help='guidance scale for unconditional guidance')
+    parser.add_argument("--cfg_scale", type=float, default=1, help='guidance scale for unconditional guidance, 1 or none = no guidance, 0 = uncond')
+    
 
     #Directory
     # parser.add_argument('--logdir', type=str, default='./logs', help='log directory')
@@ -128,10 +126,16 @@ def distillation(args):
         }
     )
     
+    print('start')
+    print_gpu_memory_usage()
+    
     T_model = get_model_teacher()
     S_model= get_model_student()
     initialize_params(S_model)
-
+    
+    print('load models')
+    print_gpu_memory_usage()
+    
     all_params_student = list(S_model.parameters())
     trainable_params_student = list(filter(lambda p: p.requires_grad, S_model.parameters()))
     
@@ -152,11 +156,14 @@ def distillation(args):
 
     optimizer = torch.optim.AdamW(
         trainable_params_student,
-        lr=args.learning_rate,
+        lr=args.lr,
         betas=(args.adam_beta1, args.adam_beta2),
         weight_decay=args.adam_weight_decay,
         eps=args.adam_epsilon,
     )
+    print('student models to optimizer')
+    print_gpu_memory_usage()
+    
 
     lr_scheduler = get_scheduler(
         args.lr_scheduler,
@@ -167,6 +174,9 @@ def distillation(args):
 
     T_sampler = DDIMSampler(T_model)
     S_sampler = DDIMSampler(S_model)
+    
+    print('models to sampler')
+    print_gpu_memory_usage()
     
     T_sampler.make_schedule(ddim_num_steps = args.DDIM_num_steps, ddim_eta= 1, verbose=False)
     S_sampler.make_schedule(ddim_num_steps = args.DDIM_num_steps, ddim_eta= 1, verbose=False)
@@ -185,50 +195,52 @@ def distillation(args):
         num_to_replace = int(cache_size * 0.1)  # 전체 크기의 10%
         indices = torch.randperm(cache_size)[:num_to_replace]  # 랜덤으로 인덱스 선택
         class_cache[indices] = 1000
-    
         
-        # img_cache = torch.load("img_cache_cache.pt")
-        # t_cache = torch.load("t_cache_cache.pt")
+        print('make cache')
+        print_gpu_memory_usage()
+        
+        # # img_cache = torch.load("img_cache_cache.pt")
+        # # t_cache = torch.load("t_cache_cache.pt")
     
-        # if img_cache, t_cache exists:
-        #     img_cache = torch.load("img_cache_cache.pt")
-        #     t_cache = torch.load("t_cache_cache.pt")
+        # # if img_cache, t_cache exists:
+        # #     img_cache = torch.load("img_cache_cache.pt")
+        # #     t_cache = torch.load("t_cache_cache.pt")
     
-        # else:
-        with torch.no_grad():
-            for i in range(args.T):
-                start_time = time.time()
+        # # else:
+        # with torch.no_grad():
+        #     for i in range(args.T):
+        #         start_time = time.time()
                 
-                start_idx = (i * args.cache_n)
-                end_idx = start_idx + args.cache_n
+        #         start_idx = (i * args.cache_n)
+        #         end_idx = start_idx + args.cache_n
                 
-                # 슬라이스 처리
-                img_batch = img_cache[start_idx:end_idx]
-                t_batch = t_cache[start_idx:end_idx]
-                class_batch = class_cache[start_idx:end_idx]
+        #         # 슬라이스 처리
+        #         img_batch = img_cache[start_idx:end_idx]
+        #         t_batch = t_cache[start_idx:end_idx]
+        #         class_batch = class_cache[start_idx:end_idx]
                 
-                c = T_model.get_learned_conditioning(
-                            {T_model.cond_stage_key: class_batch})
+        #         c = T_model.get_learned_conditioning(
+        #                     {T_model.cond_stage_key: class_batch})
                 
                 
-                img_cache[start_idx:end_idx] = T_sampler.DDPM_target_t(img_batch, c, target_t = i)
-                t_cache[start_idx:end_idx] = torch.ones(args.cache_n, dtype=torch.long, device=device)*(i)
+        #         img_cache[start_idx:end_idx] = T_sampler.DDPM_target_t(img_batch, c, target_t = i)
+        #         t_cache[start_idx:end_idx] = torch.ones(args.cache_n, dtype=torch.long, device=device)*(i)
      
-                print(f"start_idx: {start_idx}, end_idx: {end_idx}")
+        #         print(f"start_idx: {start_idx}, end_idx: {end_idx}")
     
-                elapsed_time = time.time() - start_time
-                print(f"Iteration {i + 1}/{args.T} completed in {elapsed_time:.2f} seconds.")
+        #         elapsed_time = time.time() - start_time
+        #         print(f"Iteration {i + 1}/{args.T} completed in {elapsed_time:.2f} seconds.")
     
-            save_dir = f"./{args.cachedir}/{args.cache_n}"
-            if not os.path.exists(save_dir):
-                os.makedirs(save_dir)
+        #     save_dir = f"./{args.cachedir}/{args.cache_n}"
+        #     if not os.path.exists(save_dir):
+        #         os.makedirs(save_dir)
             
-            # Save img_cache, t_cache, and class_cache as .pt files
-            torch.save(img_cache, f"{save_dir}/img_cache_{args.cache_n}.pt")
-            torch.save(t_cache, f"{save_dir}/t_cache_{args.cache_n}.pt")
-            torch.save(class_cache, f"{save_dir}/class_cache_{args.cache_n}.pt")
+        #     # Save img_cache, t_cache, and class_cache as .pt files
+        #     torch.save(img_cache, f"{save_dir}/img_cache_{args.cache_n}.pt")
+        #     torch.save(t_cache, f"{save_dir}/t_cache_{args.cache_n}.pt")
+        #     torch.save(class_cache, f"{save_dir}/class_cache_{args.cache_n}.pt")
     
-        print(f"Pre-caching completed and saved to {args.cachedir}")
+        # print(f"Pre-caching completed and saved to {args.cachedir}")
     
         ############################################ precacheing ##################################################
 
@@ -280,7 +292,7 @@ def distillation(args):
             #                                 batch_size=img_batch.shape[0],
             #                                 shape=[3, 64, 64],
             #                                 verbose=False,
-            #                                 unconditional_guidance_scale=args.CFG_scale, #우선 1로
+            #                                 unconditional_guidance_scale=args.cfg_scale, #우선 1로
             #                                 unconditional_conditioning=uc,
             #                                 eta=1)
                     
@@ -300,11 +312,17 @@ def distillation(args):
                         {T_model.cond_stage_key: class_cache[indices]})
             
             # Calculate distillation loss
-            output_loss, total_loss, x_prev = trainer(x_t, c, t, args.CFG_scale)
+            output_loss, total_loss, x_prev = trainer(x_t, c, t, args.cfg_scale)
 
+            print('loss')
+            print_gpu_memory_usage()
+            
             # Backward and optimize
             total_loss.backward()
             # torch.nn.utils.clip_grad_norm_(S_model.parameters(), args.grad_clip)
+            
+            print('backward')
+            print_gpu_memory_usage()
             
             optimizer.step()
             lr_scheduler.step()
@@ -355,8 +373,8 @@ def distillation(args):
             ################### Sample and save student outputs############################
             if args.sample_step > 0 and step % args.sample_step == 0:
                 sample_save_images(args.num_sample_class, args.n_sample_per_class, 
-                                   args.sample_save_ddim_steps, args.eta, args.cfg_scale, 
-                                   T_model, S_model, step)
+                                   args.sample_save_ddim_steps, args.ddim_eta, args.cfg_scale, 
+                                   T_model, S_model, T_sampler, S_sampler, step)
                 
 
             ################### Save student model ################################

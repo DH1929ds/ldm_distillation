@@ -11,7 +11,17 @@ import wandb
 
 from ldm.util import instantiate_from_config
 
-
+def print_gpu_memory_usage():
+    """
+    현재 GPU 메모리 사용량을 출력하는 함수
+    """
+    if torch.cuda.is_available():
+        allocated_memory = torch.cuda.memory_allocated()
+        reserved_memory = torch.cuda.memory_reserved()
+        print(f"GPU Memory Allocated: {allocated_memory / (1024 ** 2):.2f} MB")
+        print(f"GPU Memory Reserved: {reserved_memory / (1024 ** 2):.2f} MB")
+    else:
+        print("CUDA is not available.")
 
 def load_model_from_config(config, ckpt):
     print(f"Loading model from {ckpt}")
@@ -60,13 +70,20 @@ def save_checkpoint(S_model, lr_scheduler, optimizer, step, logdir):
         'optimizer': optimizer.state_dict(),  # 옵티마이저 상태 저장
         'step': step,  # 현재 스텝 저장
     }
+    
     # 저장 경로 설정
     save_path = os.path.join(logdir, f'student_ckpt_step_{step}.pt')
+    
+    # 디렉터리 존재 여부 확인 후 생성
+    if not os.path.exists(logdir):
+        os.makedirs(logdir)
+    
     # 체크포인트 저장
     torch.save(ckpt, save_path)
     print(f"Checkpoint saved at step {step} to {save_path}")
     
-def sample_save_images(num_sample_class, n_sample_per_class, steps, eta, cfg_scale, T_model, S_model, S_sampler, step):
+def sample_save_images(num_sample_class, n_sample_per_class, steps, eta, cfg_scale, T_model, S_model, T_sampler, S_sampler, step):
+    
     classes = random.sample(range(1000), num_sample_class)
     n_samples_per_class = n_sample_per_class
     ddim_steps = steps
@@ -76,8 +93,9 @@ def sample_save_images(num_sample_class, n_sample_per_class, steps, eta, cfg_sca
     all_samples_S = list()  # S_model 샘플 저장
     T_model = T_model
     S_model = S_model
+    
     with torch.no_grad():
-        for model_name, model in zip(["T_model", "S_model"], [T_model, S_model]):
+        for model_name, model, sampler in zip(["T_model", "S_model"], [T_model, S_model], [T_sampler, S_sampler]):
             model.eval()
             with model.ema_scope():
                 uc = model.get_learned_conditioning(
@@ -87,7 +105,7 @@ def sample_save_images(num_sample_class, n_sample_per_class, steps, eta, cfg_sca
                     print(f"rendering {n_samples_per_class} examples of class '{class_label}' using {model_name} in {ddim_steps} steps and using s={scale:.2f}.")
                     xc = torch.tensor(n_samples_per_class * [class_label])
                     c = model.get_learned_conditioning({model.cond_stage_key: xc.to(model.device)})
-                    samples_ddim, _ = S_sampler.sample(S=ddim_steps,
+                    samples_ddim, _ = sampler.sample(S=ddim_steps,
                                                      conditioning=c,
                                                      batch_size=n_samples_per_class,
                                                      shape=[3, 64, 64],

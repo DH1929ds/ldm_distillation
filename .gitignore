@@ -2,3 +2,5 @@ __pycache__
 *.ckpt
 src/
 wandb/
+*.png
+logs/
