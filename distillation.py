@@ -200,7 +200,7 @@ def distillation(args, gpu_num, gpu_no):
         img_cache = torch.randn(cache_size, T_model.channels, T_model.image_size, T_model.image_size).to(T_device)
         t_cache = torch.ones(cache_size, dtype=torch.long, device=T_device)*(args.T-1)
         class_cache = torch.randint(0, 950, (cache_size,), device=T_device)
-        c_emb_cache = torch.randn(cache_size, 512).to(T_device)
+        c_emb_cache = torch.randn(cache_size, 1, 512).to(T_device)
     
         # 10%의 인덱스를 무작위로 선택하여 1000으로 설정
         num_to_replace = int(cache_size * 0.1)  # 전체 크기의 10%
