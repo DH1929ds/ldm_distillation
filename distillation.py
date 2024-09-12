@@ -322,14 +322,16 @@ def distillation(args, gpu_num, gpu_no):
             torch.save(class_cache, f"{save_dir}/class_cache_{args.cache_n}.pt")
             torch.save(c_emb_cache, f"{save_dir}/c_emb_cache_{args.cache_n}.pt")
             
-            img_to_save = img_cache[0:args.cache_n, args.cache_n*200:args.cache_n*201, args.cache_n*400:args.cache_n*401, args.cache_n*600:args.cache_n*601 ]
-            img = T_model.decode_first_stage(img_to_save)
-            img = torch.clamp((img + 1.0) / 2.0, min=0.0, max=1.0)
-            
-                # T_model 결과를 그리드로 변환 및 저장
-            grid_T = torch.stack(img, 0)
-            grid_T = rearrange(grid_T, 'n b c h w -> (n b) c h w')
-            grid_T = make_grid(grid_T, nrow=args.cache_n)
+            slice1 = img_cache[0:4]  # 첫 번째 슬라이스: 0부터 args.cache_n
+            slice2 = img_cache[args.cache_n*200:args.cache_n*200+4]  # 두 번째 슬라이스: args.cache_n*200부터 args.cache_n*201
+            slice3 = img_cache[args.cache_n*400:args.cache_n*400+4]  # 세 번째 슬라이스: args.cache_n*400부터 args.cache_n*401
+            slice4 = img_cache[args.cache_n*600:args.cache_n*600+4]  # 네 번째 슬라이스: args.cache_n*600부터 args.cache_n*601
+
+            # 슬라이스들을 합치기
+            img_to_save = torch.cat((slice1, slice2, slice3, slice4), dim=0)
+            img = T_model.decode_first_stage(img_to_save)        
+            grid_T = torch.clamp((img + 1.0) / 2.0, min=0.0, max=1.0)
+            grid_T = make_grid(grid_T, nrow=4)
             # 각각의 그리드를 이미지로 변환
             grid_T = 255. * rearrange(grid_T, 'c h w -> h w c').cpu().numpy()
             # 이미지로 저장 (T_model과 S_model의 결과)
@@ -354,6 +356,26 @@ def distillation(args, gpu_num, gpu_no):
         class_cache = torch.load(f"{save_dir}/class_cache_{args.cache_n}.pt").to(T_device)
         c_emb_cache = torch.load(f"{save_dir}/c_emb_cache_{args.cache_n}.pt").to(T_device)
         
+        slice1 = img_cache[0:4]  # 첫 번째 슬라이스: 0부터 args.cache_n
+        slice2 = img_cache[args.cache_n*200:args.cache_n*200+4]  # 두 번째 슬라이스: args.cache_n*200부터 args.cache_n*201
+        slice3 = img_cache[args.cache_n*400:args.cache_n*400+4]  # 세 번째 슬라이스: args.cache_n*400부터 args.cache_n*401
+        slice4 = img_cache[args.cache_n*600:args.cache_n*600+4]  # 네 번째 슬라이스: args.cache_n*600부터 args.cache_n*601
+
+        # 슬라이스들을 합치기
+        img_to_save = torch.cat((slice1, slice2, slice3, slice4), dim=0)
+        img = T_model.decode_first_stage(img_to_save)        
+        grid_T = torch.clamp((img + 1.0) / 2.0, min=0.0, max=1.0)
+        grid_T = make_grid(grid_T, nrow=4)
+        # 각각의 그리드를 이미지로 변환
+        grid_T = 255. * rearrange(grid_T, 'c h w -> h w c').cpu().numpy()
+        # 이미지로 저장 (T_model과 S_model의 결과)
+        output_image_T = Image.fromarray(grid_T.astype(np.uint8))
+        output_image_T_path = 'caching_image.png'
+        output_image_T.save(output_image_T_path)
+
+        # 저장 경로 설정
+        save_dir = f"./{args.cachedir}/{args.cache_n}/images"
+        os.makedirs(save_dir, exist_ok=True)
         # pt로 image_cache, t_cache 저장
 
     # with torch.no_grad():

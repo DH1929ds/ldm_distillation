@@ -726,7 +726,6 @@ class UNetModel(nn.Module):
         :param y: an [N] Tensor of labels, if class-conditional.
         :return: an [N x C x ...] Tensor of outputs.
         """
-        print("t.device in unet forward: ", timesteps.device)
         
         assert (y is not None) == (
             self.num_classes is not None
@@ -734,7 +733,6 @@ class UNetModel(nn.Module):
         hs = []
         features = []
         t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
-        print("t_emb.device: ", t_emb.device)
 
         emb = self.time_embed(t_emb)
 
