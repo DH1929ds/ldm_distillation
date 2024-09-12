@@ -234,14 +234,27 @@ class DDIMSampler(object):
         b, *_, device = *x.shape, x.device
 
         if unconditional_conditioning is None or unconditional_guidance_scale == 1.:
-            e_t = self.model.apply_model(x, t, c)
+            if is_feature:
+                e_t, features = self.model.apply_model(x, t, c, is_feature=is_feature)
+            else:
+                e_t = self.model.apply_model(x, t, c, is_feature=is_feature)
             model_output = e_t.clone()
+            
         else:
-            x_in = torch.cat([x] * 2)
-            t_in = torch.cat([t] * 2)
-            c_in = torch.cat([unconditional_conditioning, c])
-            e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in).chunk(2)
-            model_output = e_t.clone()
+            if is_feature:
+                x_in = torch.cat([x] * 2)
+                t_in = torch.cat([t] * 2)
+                c_in = torch.cat([unconditional_conditioning, c])
+                (e_t_uncond, features_uncond), (e_t, features) = self.model.apply_model(x_in, t_in, c_in, is_feature=is_feature)
+                model_output = e_t.clone()
+
+
+            else:
+                x_in = torch.cat([x] * 2)
+                t_in = torch.cat([t] * 2)
+                c_in = torch.cat([unconditional_conditioning, c])
+                e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in, is_feature=is_feature).chunk(2)
+                model_output = e_t.clone()
             e_t = e_t_uncond + unconditional_guidance_scale * (e_t - e_t_uncond)
 
         if score_corrector is not None:
@@ -269,7 +282,10 @@ class DDIMSampler(object):
             noise = torch.nn.functional.dropout(noise, p=noise_dropout)
         x_prev = a_prev.sqrt() * pred_x0 + dir_xt + noise
         
-        return x_prev, pred_x0 , model_output  ## x_prev와 pred_x0은 CFG 사용한 결과임
+        if is_feature:
+            return x_prev, pred_x0 , model_output, features
+        else:
+            return x_prev, pred_x0 , model_output  ## x_prev와 pred_x0은 CFG 사용한 결과임
     
     
     @torch.no_grad()
