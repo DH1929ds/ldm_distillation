@@ -14,11 +14,12 @@ class DDIMSampler(object):
         self.model = model
         self.ddpm_num_timesteps = model.num_timesteps
         self.schedule = schedule
+        self.device = self.model.device
 
     def register_buffer(self, name, attr):
         if type(attr) == torch.Tensor:
-            if attr.device != torch.device("cuda"):
-                attr = attr.to(torch.device("cuda"))
+            if attr.device != self.device:
+                attr = attr.to(self.device)
         setattr(self, name, attr)
 
     def make_schedule(self, ddim_num_steps, ddim_discretize="uniform", ddim_eta=0., verbose=True):
@@ -209,20 +210,16 @@ class DDIMSampler(object):
         b = x_T.shape[0]
         img = x_T
 
-
-
-        time_range = reversed(range(0,target_t))
+        
         total_steps = 1000 - target_t
+        time_range = reversed(range(0, total_steps))
         
-        print(f"Running DDPM Sampling until the {target_t} time step.")
-
         iterator = tqdm(time_range, desc='DDPM Sampler', total=total_steps)
-        
+
         
         for i, step in enumerate(iterator):
             index = 1000 - i - 1
             ts = torch.full((b,), step, device=device, dtype=torch.long)
-
 
             outs = self.p_sample_ddim(img, c, ts, index=index, use_original_steps = True,
                                       unconditional_conditioning=None)
@@ -233,7 +230,7 @@ class DDIMSampler(object):
     @torch.no_grad()
     def cache_step(self, x, c, t, index, repeat_noise=False, use_original_steps=False, quantize_denoised=False,
                       temperature=1., noise_dropout=0., score_corrector=None, corrector_kwargs=None,
-                      unconditional_guidance_scale=1., unconditional_conditioning=None):
+                      unconditional_guidance_scale=1., unconditional_conditioning=None, is_feature=False):
         b, *_, device = *x.shape, x.device
 
         if unconditional_conditioning is None or unconditional_guidance_scale == 1.:
@@ -256,10 +253,10 @@ class DDIMSampler(object):
         sqrt_one_minus_alphas = self.sqrt_one_minus_alphas_cumprod if use_original_steps else self.ddim_sqrt_one_minus_alphas
         sigmas = self.ddim_sigmas_for_original_num_steps if use_original_steps else self.ddim_sigmas
         # select parameters corresponding to the currently considered timestep
-        a_t = torch.full((b, 1, 1, 1), alphas[index], device=device)
-        a_prev = torch.full((b, 1, 1, 1), alphas_prev[index], device=device)
-        sigma_t = torch.full((b, 1, 1, 1), sigmas[index], device=device)
-        sqrt_one_minus_at = torch.full((b, 1, 1, 1), sqrt_one_minus_alphas[index],device=device)
+        a_t = alphas[index].view(b, 1, 1, 1).to(device)
+        a_prev = alphas_prev[index].view(b, 1, 1, 1).to(device)
+        sigma_t = sigmas[index].view(b, 1, 1, 1).to(device)
+        sqrt_one_minus_at = sqrt_one_minus_alphas[index].view(b, 1, 1, 1).to(device)
 
         # current prediction for x_0
         pred_x0 = (x - sqrt_one_minus_at * e_t) / a_t.sqrt()

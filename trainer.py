@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from funcs import print_gpu_memory_usage
+from gpu_log import GPUMonitor
+
 
 class distillation_DDPM_trainer(nn.Module):
   def __init__(self, T_model, S_model, T_sampler, S_sampler, distill_features = False):
@@ -54,15 +56,18 @@ class distillation_DDPM_trainer(nn.Module):
                 #print_gpu_memory_usage("After Teacher sampler cache step")
 
             # Student model forward pass
-            #print_gpu_memory_usage("Before Student model apply_model")
+            x_t = x_t.to(self.S_model.device)
+            t = t.to(self.S_model.device)
+            c = c.to(self.S_model.device)
+
+            print("t.device in trainer.py: ", t.device)
+
             S_output = self.S_model.apply_model(x_t, t, c)
-            #print_gpu_memory_usage("After Student model apply_model")
+            T_output = T_output.to(self.S_model.device)
 
-            output_loss = F.mse_loss(T_output, S_output, reduction='mean')
-            #print_gpu_memory_usage("After calculating output loss")
-
+            
+            output_loss = F.mse_loss(T_output.float(), S_output.float(), reduction='mean')
             total_loss = output_loss
-
-        ##print_gpu_memory_usage("End of forward pass")
+            
 
         return output_loss, total_loss, x_prev
