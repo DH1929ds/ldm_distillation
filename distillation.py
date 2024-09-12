@@ -200,6 +200,7 @@ def distillation(args, gpu_num, gpu_no):
         img_cache = torch.randn(cache_size, T_model.channels, T_model.image_size, T_model.image_size).to(T_device)
         t_cache = torch.ones(cache_size, dtype=torch.long, device=T_device)*(args.T-1)
         class_cache = torch.randint(0, 950, (cache_size,), device=T_device)
+        c_emb_cache = torch.randn(cache_size, 512).to(T_device)
     
         # 10%의 인덱스를 무작위로 선택하여 1000으로 설정
         num_to_replace = int(cache_size * 0.1)  # 전체 크기의 10%
@@ -277,6 +278,17 @@ def distillation(args, gpu_num, gpu_no):
                 
             for i in range(int(args.T/2)):
                 indices.extend(range(500 * args.cache_n))
+            
+            for batch_start in trange(0, len(args.T * args.cache_n), args.caching_batch_size, desc="Pre-class_caching"):
+                batch_end = min(batch_start + args.caching_batch_size, len(args.T * args.cache_n))  # 인덱스 범위를 벗어나지 않도록 처리
+                class_batch = class_cache[batch_start:batch_end]
+                
+                c = T_model.get_learned_conditioning(
+                    {T_model.cond_stage_key: class_batch}
+                )
+                
+                c_emb_cache[batch_start:batch_end] = c
+                
                 
             # Batch size만큼의 인덱스를 뽑아오는 과정
             for batch_start in trange(0, len(indices), args.caching_batch_size, desc="Pre-caching"):
@@ -286,11 +298,8 @@ def distillation(args, gpu_num, gpu_no):
                 # 인덱스를 이용해 배치 선택
                 img_batch = img_cache[batch_indices]
                 t_batch = t_cache[batch_indices]
-                class_batch = class_cache[batch_indices]
-                # 모델에 적용
-                c = T_model.get_learned_conditioning(
-                    {T_model.cond_stage_key: class_batch}
-                )
+                c = c_emb_cache[batch_indices]
+                
 
                 x_prev, pred_x0,_ = T_sampler.cache_step(img_batch, c, t_batch, t_batch,
                                                         use_original_steps=True,
@@ -311,6 +320,7 @@ def distillation(args, gpu_num, gpu_no):
             torch.save(img_cache, f"{save_dir}/img_cache_{args.cache_n}.pt")
             torch.save(t_cache, f"{save_dir}/t_cache_{args.cache_n}.pt")
             torch.save(class_cache, f"{save_dir}/class_cache_{args.cache_n}.pt")
+            torch.save(c_emb_cache, f"{save_dir}/c_emb_cache_{args.cache_n}.pt")
             
             img_to_save = img_cache[0:args.cache_n, args.cache_n*200:args.cache_n*201, args.cache_n*400:args.cache_n*401, args.cache_n*600:args.cache_n*601 ]
             img = T_model.decode_first_stage(img_to_save)
@@ -342,8 +352,8 @@ def distillation(args, gpu_num, gpu_no):
         img_cache = torch.load(f"{save_dir}/img_cache_{args.cache_n}.pt").to(T_device)
         t_cache = torch.load(f"{save_dir}/t_cache_{args.cache_n}.pt").to(T_device)
         class_cache = torch.load(f"{save_dir}/class_cache_{args.cache_n}.pt").to(T_device)
-
-    
+        c_emb_cache = torch.load(f"{save_dir}/c_emb_cache_{args.cache_n}.pt").to(T_device)
+        
         # pt로 image_cache, t_cache 저장
 
     # with torch.no_grad():
@@ -399,8 +409,8 @@ def distillation(args, gpu_num, gpu_no):
             # Sample img_cache and t_cache using the random indices
             x_t = img_cache[indices]
             t = t_cache[indices]
-            c = T_model.get_learned_conditioning(
-                        {T_model.cond_stage_key: class_cache[indices]})
+            c = c_emb_cache[indices]
+            
             gpu_monitor.start("before_forward_start!!")
             
             # Calculate distillation loss
