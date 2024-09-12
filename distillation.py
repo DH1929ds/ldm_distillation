@@ -310,7 +310,7 @@ def distillation(args, gpu_num, gpu_no):
                 t_cache[batch_indices] -= 1
 
                 if batch_start % 100 == 0:  # 예를 들어, 100 스텝마다 시각화
-                    visualize_t_cache_distribution(t_cache)
+                    visualize_t_cache_distribution(t_cache, args.cache_n)
 
             save_dir = f"./{args.cachedir}/{args.cache_n}"
             if not os.path.exists(save_dir):

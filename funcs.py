@@ -12,7 +12,7 @@ import wandb
 
 from ldm.util import instantiate_from_config
 
-def visualize_t_cache_distribution(t_cache):
+def visualize_t_cache_distribution(t_cache, cache_n):
     # CPU로 이동하여 numpy 배열로 변환
     t_cache_cpu = t_cache.cpu().numpy()
 
@@ -22,7 +22,7 @@ def visualize_t_cache_distribution(t_cache):
     plt.title('Distribution of t_cache')
     plt.xlabel('Values')
     plt.ylabel('Frequency')
-    plt.ylim(0, 1000)
+    plt.ylim(0, cache_n*10)
     plt.grid(True)
 
     # 저장할 디렉토리가 없다면 생성
