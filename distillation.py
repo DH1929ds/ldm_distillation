@@ -40,7 +40,6 @@ def get_parser():
     parser.add_argument("--seed", type=int, default=20240911, help="seed for seed_everything")
     
     parser.add_argument("--trainable_modules", type=tuple, default=(None,), help="Tuple of trainable modules")
-    parser.add_argument("--train_batch_size", type=int, default=4, help="Batch size for training")
     parser.add_argument("--adam_beta1", type=float, default=0.9, help="Beta1 parameter for Adam optimizer")
     parser.add_argument("--adam_beta2", type=float, default=0.999, help="Beta2 parameter for Adam optimizer")
     parser.add_argument("--adam_weight_decay", type=float, default=1e-2, help="Weight decay for Adam optimizer")
@@ -126,15 +125,17 @@ def distillation(args):
         }
     )
     
-    print('start')
-    print_gpu_memory_usage()
+    #print_gpu_memory_usage('start')
     
     T_model = get_model_teacher()
+    T_model.eval
+    
+    #print_gpu_memory_usage('load teacher models')
+    
     S_model= get_model_student()
     initialize_params(S_model)
-    
-    print('load models')
-    print_gpu_memory_usage()
+
+    #print_gpu_memory_usage('load student models')
     
     all_params_student = list(S_model.parameters())
     trainable_params_student = list(filter(lambda p: p.requires_grad, S_model.parameters()))
@@ -161,8 +162,8 @@ def distillation(args):
         weight_decay=args.adam_weight_decay,
         eps=args.adam_epsilon,
     )
-    print('student models to optimizer')
-    print_gpu_memory_usage()
+    
+    #print_gpu_memory_usage('student models to optimizer')
     
 
     lr_scheduler = get_scheduler(
@@ -175,8 +176,7 @@ def distillation(args):
     T_sampler = DDIMSampler(T_model)
     S_sampler = DDIMSampler(S_model)
     
-    print('models to sampler')
-    print_gpu_memory_usage()
+    #print_gpu_memory_usage('models to sampler')
     
     T_sampler.make_schedule(ddim_num_steps = args.DDIM_num_steps, ddim_eta= 1, verbose=False)
     S_sampler.make_schedule(ddim_num_steps = args.DDIM_num_steps, ddim_eta= 1, verbose=False)
@@ -196,51 +196,42 @@ def distillation(args):
         indices = torch.randperm(cache_size)[:num_to_replace]  # 랜덤으로 인덱스 선택
         class_cache[indices] = 1000
         
-        print('make cache')
-        print_gpu_memory_usage()
+        #print_gpu_memory_usage('make cache')
         
-        # # img_cache = torch.load("img_cache_cache.pt")
-        # # t_cache = torch.load("t_cache_cache.pt")
-    
-        # # if img_cache, t_cache exists:
-        # #     img_cache = torch.load("img_cache_cache.pt")
-        # #     t_cache = torch.load("t_cache_cache.pt")
-    
-        # # else:
-        # with torch.no_grad():
-        #     for i in range(args.T):
-        #         start_time = time.time()
+        with torch.no_grad():
+            for i in range(args.T):
+                start_time = time.time()
                 
-        #         start_idx = (i * args.cache_n)
-        #         end_idx = start_idx + args.cache_n
+                start_idx = (i * args.cache_n)
+                end_idx = start_idx + args.cache_n
                 
-        #         # 슬라이스 처리
-        #         img_batch = img_cache[start_idx:end_idx]
-        #         t_batch = t_cache[start_idx:end_idx]
-        #         class_batch = class_cache[start_idx:end_idx]
+                # 슬라이스 처리
+                img_batch = img_cache[start_idx:end_idx]
+                t_batch = t_cache[start_idx:end_idx]
+                class_batch = class_cache[start_idx:end_idx]
                 
-        #         c = T_model.get_learned_conditioning(
-        #                     {T_model.cond_stage_key: class_batch})
+                c = T_model.get_learned_conditioning(
+                            {T_model.cond_stage_key: class_batch})
                 
                 
-        #         img_cache[start_idx:end_idx] = T_sampler.DDPM_target_t(img_batch, c, target_t = i)
-        #         t_cache[start_idx:end_idx] = torch.ones(args.cache_n, dtype=torch.long, device=device)*(i)
+                img_cache[start_idx:end_idx] = T_sampler.DDPM_target_t(img_batch, c, target_t = i)
+                t_cache[start_idx:end_idx] = torch.ones(args.cache_n, dtype=torch.long, device=device)*(i)
      
-        #         print(f"start_idx: {start_idx}, end_idx: {end_idx}")
+                print(f"start_idx: {start_idx}, end_idx: {end_idx}")
     
-        #         elapsed_time = time.time() - start_time
-        #         print(f"Iteration {i + 1}/{args.T} completed in {elapsed_time:.2f} seconds.")
+                elapsed_time = time.time() - start_time
+                print(f"Iteration {i + 1}/{args.T} completed in {elapsed_time:.2f} seconds.")
     
-        #     save_dir = f"./{args.cachedir}/{args.cache_n}"
-        #     if not os.path.exists(save_dir):
-        #         os.makedirs(save_dir)
+            save_dir = f"./{args.cachedir}/{args.cache_n}"
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir)
             
-        #     # Save img_cache, t_cache, and class_cache as .pt files
-        #     torch.save(img_cache, f"{save_dir}/img_cache_{args.cache_n}.pt")
-        #     torch.save(t_cache, f"{save_dir}/t_cache_{args.cache_n}.pt")
-        #     torch.save(class_cache, f"{save_dir}/class_cache_{args.cache_n}.pt")
+            # Save img_cache, t_cache, and class_cache as .pt files
+            torch.save(img_cache, f"{save_dir}/img_cache_{args.cache_n}.pt")
+            torch.save(t_cache, f"{save_dir}/t_cache_{args.cache_n}.pt")
+            torch.save(class_cache, f"{save_dir}/class_cache_{args.cache_n}.pt")
     
-        # print(f"Pre-caching completed and saved to {args.cachedir}")
+        print(f"Pre-caching completed and saved to {args.cachedir}")
     
         ############################################ precacheing ##################################################
 
@@ -308,21 +299,22 @@ def distillation(args):
             # Sample img_cache and t_cache using the random indices
             x_t = img_cache[indices]
             t = t_cache[indices]
-            c = T_model.get_learned_conditioning(
-                        {T_model.cond_stage_key: class_cache[indices]})
+            with torch.no_grad():
+                c = T_model.get_learned_conditioning(
+                            {T_model.cond_stage_key: class_cache[indices]})
+
+            #print_gpu_memory_usage('batch slicing')
             
             # Calculate distillation loss
             output_loss, total_loss, x_prev = trainer(x_t, c, t, args.cfg_scale)
 
-            print('loss')
-            print_gpu_memory_usage()
+            #print_gpu_memory_usage('loss')
             
             # Backward and optimize
             total_loss.backward()
             # torch.nn.utils.clip_grad_norm_(S_model.parameters(), args.grad_clip)
             
-            print('backward')
-            print_gpu_memory_usage()
+            #print_gpu_memory_usage('backward')
             
             optimizer.step()
             lr_scheduler.step()

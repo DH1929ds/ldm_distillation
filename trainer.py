@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from funcs import print_gpu_memory_usage
 
 class distillation_DDPM_trainer(nn.Module):
   def __init__(self, T_model, S_model, T_sampler, S_sampler, distill_features = False):
@@ -42,18 +43,26 @@ class distillation_DDPM_trainer(nn.Module):
         ############################### TODO ###########################       
         
         else:
-        # Teacher model forward pass (in evaluation mode)
+            # Teacher model forward pass (in evaluation mode)
             with torch.no_grad():
-                x_prev, pred_x0, T_output = self.T_sampler.cache_step(x_t, c, t, t, 
-                                                                      use_original_steps = True, 
-                                                                      unconditional_guidance_scale = cfg_scale) # 1 or none = no guidance, -1 = uncond
+                #print_gpu_memory_usage("Before Teacher sampler cache step")
+                x_prev, pred_x0, T_output = self.T_sampler.cache_step(
+                    x_t, c, t, t,
+                    use_original_steps=True,
+                    unconditional_guidance_scale=cfg_scale
+                )
+                #print_gpu_memory_usage("After Teacher sampler cache step")
 
             # Student model forward pass
+            #print_gpu_memory_usage("Before Student model apply_model")
             S_output = self.S_model.apply_model(x_t, t, c)
-            
-            output_loss = F.mse_loss(T_output, S_output, reduction='mean')
-            total_loss = output_loss
-            
+            #print_gpu_memory_usage("After Student model apply_model")
 
-       
+            output_loss = F.mse_loss(T_output, S_output, reduction='mean')
+            #print_gpu_memory_usage("After calculating output loss")
+
+            total_loss = output_loss
+
+        ##print_gpu_memory_usage("End of forward pass")
+
         return output_loss, total_loss, x_prev

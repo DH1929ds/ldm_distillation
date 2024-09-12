@@ -11,15 +11,13 @@ import wandb
 
 from ldm.util import instantiate_from_config
 
-def print_gpu_memory_usage():
-    """
-    현재 GPU 메모리 사용량을 출력하는 함수
-    """
+def print_gpu_memory_usage(step_description):
     if torch.cuda.is_available():
         allocated_memory = torch.cuda.memory_allocated()
         reserved_memory = torch.cuda.memory_reserved()
-        print(f"GPU Memory Allocated: {allocated_memory / (1024 ** 2):.2f} MB")
-        print(f"GPU Memory Reserved: {reserved_memory / (1024 ** 2):.2f} MB")
+        print(f"[{step_description}] GPU Memory Allocated: {allocated_memory / (1024 ** 2):.2f} MB")
+        print(f"[{step_description}] GPU Memory Reserved: {reserved_memory / (1024 ** 2):.2f} MB")
+
     else:
         print("CUDA is not available.")
 

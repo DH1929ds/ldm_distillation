@@ -252,10 +252,10 @@ class DDIMSampler(object):
         sqrt_one_minus_alphas = self.sqrt_one_minus_alphas_cumprod if use_original_steps else self.ddim_sqrt_one_minus_alphas
         sigmas = self.ddim_sigmas_for_original_num_steps if use_original_steps else self.ddim_sigmas
         # select parameters corresponding to the currently considered timestep
-        a_t = alphas[index].view(128, 1, 1, 1).to(device)
-        a_prev = alphas_prev[index].view(128, 1, 1, 1).to(device)
-        sigma_t = sigmas[index].view(128, 1, 1, 1).to(device)
-        sqrt_one_minus_at = sqrt_one_minus_alphas[index].view(128, 1, 1, 1).to(device)
+        a_t = alphas[index].view(b, 1, 1, 1).to(device)
+        a_prev = alphas_prev[index].view(b, 1, 1, 1).to(device)
+        sigma_t = sigmas[index].view(b, 1, 1, 1).to(device)
+        sqrt_one_minus_at = sqrt_one_minus_alphas[index].view(b, 1, 1, 1).to(device)
 
         # current prediction for x_0
         pred_x0 = (x - sqrt_one_minus_at * e_t) / a_t.sqrt()
