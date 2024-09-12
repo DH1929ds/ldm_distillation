@@ -115,7 +115,7 @@ def get_parser():
 
 def distillation(args, gpu_num, gpu_no):
 
-    gpu_monitor = GPUMonitor(monitoring_interval=2)
+    #gpu_monitor = GPUMonitor(monitoring_interval=2)
 
     # Initialize WandB
     wandb.init(
@@ -131,7 +131,7 @@ def distillation(args, gpu_num, gpu_no):
     )
     
  
-    gpu_monitor.start("model_load_start!!")
+    #gpu_monitor.start("model_load_start!!")
 
     T_model = get_model_teacher()
     S_model= get_model_student()
@@ -143,7 +143,7 @@ def distillation(args, gpu_num, gpu_no):
 
     initialize_params(S_model)
     
-    gpu_monitor.stop("model_load_finish!!")
+    #gpu_monitor.stop("model_load_finish!!")
     
     all_params_student = list(S_model.parameters())
     trainable_params_student = list(filter(lambda p: p.requires_grad, S_model.parameters()))
@@ -163,7 +163,7 @@ def distillation(args, gpu_num, gpu_no):
     print(f"Teacher: Number of All parameters: {num_all_params_teacher}")
     print(f"Teacher: Number of trainable parameters: {num_trainable_params_teacher}")
     
-    gpu_monitor.start("optimizer_load_start!!")
+    #gpu_monitor.start("optimizer_load_start!!")
 
     optimizer = torch.optim.AdamW(
         trainable_params_student,
@@ -172,7 +172,7 @@ def distillation(args, gpu_num, gpu_no):
         weight_decay=args.adam_weight_decay,
         eps=args.adam_epsilon,
     )
-    gpu_monitor.stop("optimizer_load_finish!!")
+    #gpu_monitor.stop("optimizer_load_finish!!")
 
     
 
@@ -411,23 +411,23 @@ def distillation(args, gpu_num, gpu_no):
             t = t_cache[indices]
             c = c_emb_cache[indices]
             
-            gpu_monitor.start("before_forward_start!!")
+            #gpu_monitor.start("before_forward_start!!")
             
             # Calculate distillation loss
             output_loss, total_loss, x_prev = trainer(x_t, c, t, args.cfg_scale)
 
-            gpu_monitor.stop("forward_stop!!")
+            #gpu_monitor.stop("forward_stop!!")
 
-            gpu_monitor.start("loss backward_start!!")
+            #gpu_monitor.start("loss backward_start!!")
             # Backward and optimize
             total_loss.backward()
             # torch.nn.utils.clip_grad_norm_(S_model.parameters(), args.grad_clip)
-            gpu_monitor.stop("loss backward_stop!!")
+            #gpu_monitor.stop("loss backward_stop!!")
 
-            gpu_monitor.start("optimizer step_start!!")
+            #gpu_monitor.start("optimizer step_start!!")
             optimizer.step()
             lr_scheduler.step()
-            gpu_monitor.stop("optimizer step_stop!!")
+            #gpu_monitor.stop("optimizer step_stop!!")
 
             ### cache update ###
             img_cache[indices] = x_prev
@@ -463,9 +463,9 @@ def distillation(args, gpu_num, gpu_no):
                 t_cache[zero_indices] = torch.ones(num_zero_indices, dtype=torch.long, device=T_device) *(args.T-1)
                 img_cache[zero_indices] = torch.randn(num_zero_indices, T_model.channels, T_model.img_size, T_model.img_size).to(T_device)
 
-            gpu_monitor.start("cuda empty cache_start!!")
+            #gpu_monitor.start("cuda empty cache_start!!")
             torch.cuda.empty_cache()  # 메모리 해제
-            gpu_monitor.stop("cuda empty cache_stop!!")
+            #gpu_monitor.stop("cuda empty cache_stop!!")
 
             # Logging with WandB
             wandb.log({
