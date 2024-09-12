@@ -33,12 +33,13 @@ def sampling():
     model = get_model()
     sampler = DDIMSampler(model)
     
-    classes = [55, 1, 2, 1000]  # define classes to be sampled here
-    n_samples_per_class = 16
+    classes = [0, 1, 2, 3]  # define classes to be sampled here
+    n_samples_per_class = 8
     
-    ddim_steps = 20
+    ddim_steps = 100
     ddim_eta = 1.0
-    scale = 1 # for unconditional guidance 0: uncond, 1: no guidance cond
+    scale = 1.5 # for unconditional guidance 0: uncond, 1: no guidance cond
+    ddim_use_original_steps = True
     
     all_samples = list()
     
@@ -58,7 +59,7 @@ def sampling():
                                                  batch_size=n_samples_per_class,
                                                  shape=[3, 64, 64],
                                                  verbose=False,
-                                                 ddim_use_original_steps=True,
+                                                 ddim_use_original_steps=ddim_use_original_steps,
                                                  unconditional_guidance_scale=scale,
                                                  unconditional_conditioning=uc,
                                                  eta=ddim_eta)

@@ -254,14 +254,15 @@ def distillation(args):
                 else:    
                     start_idx = 0
                     end_idx = (i+1) * args.cache_n
-                    
+
+                    img_batch = img_cache[start_idx:end_idx]
                     t_batch = t_cache[start_idx:end_idx]
                     class_batch = class_cache[start_idx:end_idx]
                     
                     c = T_model.get_learned_conditioning(
                                 {T_model.cond_stage_key: class_batch})
                     
-                    x_prev, pred_x0 = T_sampler.p_sample_ddim(img_batch, c, t_batch, t_batch,
+                    x_prev, pred_x0,_ = T_sampler.cache_step(img_batch, c, t_batch, t_batch,
                                                                         use_original_steps=True,
                                                                         unconditional_guidance_scale=args.cfg_scale)
                     
@@ -274,16 +275,15 @@ def distillation(args):
                 batch_indices = indices[batch_start:batch_end]  # Batch size만큼 인덱스 선택
 
                 # 인덱스를 이용해 배치 선택
+                img_batch = img_cache[batch_indices]
                 t_batch = t_cache[batch_indices]
                 class_batch = class_cache[batch_indices]
-                img_batch = img_cache[batch_indices]  # img_batch가 필요한 경우 추가
-
                 # 모델에 적용
                 c = T_model.get_learned_conditioning(
                     {T_model.cond_stage_key: class_batch}
                 )
 
-                x_prev, pred_x0 = T_sampler.p_sample_ddim(img_batch, c, t_batch, t_batch,
+                x_prev, pred_x0,_ = T_sampler.cache_step(img_batch, c, t_batch, t_batch,
                                                         use_original_steps=True,
                                                         unconditional_guidance_scale=args.cfg_scale)
 
