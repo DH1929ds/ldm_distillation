@@ -29,7 +29,7 @@ from diffusers.optimization import get_scheduler
 from pytorch_lightning import seed_everything
 
 from trainer import distillation_DDPM_trainer
-from funcs import load_model_from_config, get_model_teacher, load_model_from_config_without_ckpt, get_model_student, initialize_params, sample_save_images, save_checkpoint, print_gpu_memory_usage
+from funcs import load_model_from_config, get_model_teacher, load_model_from_config_without_ckpt, get_model_student, initialize_params, sample_save_images, save_checkpoint, print_gpu_memory_usage, visualize_t_cache_distribution
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -290,6 +290,9 @@ def distillation(args):
                 # 결과를 저장
                 img_cache[batch_indices] = x_prev
                 t_cache[batch_indices] -= 1
+
+                if batch_start % 100 == 0:  # 예를 들어, 100 스텝마다 시각화
+                    visualize_t_cache_distribution(t_cache)
 
             save_dir = f"./{args.cachedir}/{args.cache_n}"
             if not os.path.exists(save_dir):
