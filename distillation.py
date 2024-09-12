@@ -244,65 +244,95 @@ def distillation(args, gpu_num, gpu_no):
         # print(f"Pre-caching completed and saved to {args.cachedir}")
         
         # #print_gpu_memory_usage('make cache')
-        # with torch.no_grad():
-        #     indices = []
-        #     for i in range(args.T):
-        #         if (i+1) * args.cache_n > args.caching_batch_size:
-        #             indices.extend(range(0, (i+1)*args.cache_n))
+        with torch.no_grad():
+            indices = []
+            # for i in range(args.T):
+            #     if (i+1) * args.cache_n > args.caching_batch_size:
+            #         indices.extend(range(0, (i+1)*args.cache_n))
                     
-        #         else:    
-        #             start_idx = 0
-        #             end_idx = (i+1) * args.cache_n
+            #     else:    
+            #         start_idx = 0
+            #         end_idx = (i+1) * args.cache_n
 
-        #             img_batch = img_cache[start_idx:end_idx]
-        #             t_batch = t_cache[start_idx:end_idx]
-        #             class_batch = class_cache[start_idx:end_idx]
+            #         img_batch = img_cache[start_idx:end_idx]
+            #         t_batch = t_cache[start_idx:end_idx]
+            #         class_batch = class_cache[start_idx:end_idx]
                     
-        #             c = T_model.get_learned_conditioning(
-        #                         {T_model.cond_stage_key: class_batch})
+            #         c = T_model.get_learned_conditioning(
+            #                     {T_model.cond_stage_key: class_batch})
                     
-        #             x_prev, pred_x0,_ = T_sampler.cache_step(img_batch, c, t_batch, t_batch,
-        #                                                                 use_original_steps=True,
-        #                                                                 unconditional_guidance_scale=args.cfg_scale)
+            #         x_prev, pred_x0,_ = T_sampler.cache_step(img_batch, c, t_batch, t_batch,
+            #                                                             use_original_steps=True,
+            #                                                             unconditional_guidance_scale=args.cfg_scale)
                     
-        #             img_cache[start_idx:end_idx]  = x_prev
-        #             t_cache[start_idx:end_idx] -=1
+            #         img_cache[start_idx:end_idx]  = x_prev
+            #         t_cache[start_idx:end_idx] -=1
             
-        #     # Batch size만큼의 인덱스를 뽑아오는 과정
-        #     for batch_start in trange(0, len(indices), args.caching_batch_size, desc="Pre-caching"):
-        #         batch_end = min(batch_start + args.caching_batch_size, len(indices))  # 인덱스 범위를 벗어나지 않도록 처리
-        #         batch_indices = indices[batch_start:batch_end]  # Batch size만큼 인덱스 선택
+            for i in range(1,args.T/2):
+                # 0부터 i*n까지의 값
+                indices.extend(range(i * args.cache_n))
+                
+                # (1000-i)*n부터 500*n까지의 값
+                indices.extend(range((1000 - i) * args.cache_n, 500 * args.cache_n, -1))
+                
+            for i in range(args.T/2):
+                indices.extend(range(500 * args.cache_n))
+                
+            # Batch size만큼의 인덱스를 뽑아오는 과정
+            for batch_start in trange(0, len(indices), args.caching_batch_size, desc="Pre-caching"):
+                batch_end = min(batch_start + args.caching_batch_size, len(indices))  # 인덱스 범위를 벗어나지 않도록 처리
+                batch_indices = indices[batch_start:batch_end]  # Batch size만큼 인덱스 선택
 
-        #         # 인덱스를 이용해 배치 선택
-        #         img_batch = img_cache[batch_indices]
-        #         t_batch = t_cache[batch_indices]
-        #         class_batch = class_cache[batch_indices]
-        #         # 모델에 적용
-        #         c = T_model.get_learned_conditioning(
-        #             {T_model.cond_stage_key: class_batch}
-        #         )
+                # 인덱스를 이용해 배치 선택
+                img_batch = img_cache[batch_indices]
+                t_batch = t_cache[batch_indices]
+                class_batch = class_cache[batch_indices]
+                # 모델에 적용
+                c = T_model.get_learned_conditioning(
+                    {T_model.cond_stage_key: class_batch}
+                )
 
-        #         x_prev, pred_x0,_ = T_sampler.cache_step(img_batch, c, t_batch, t_batch,
-        #                                                 use_original_steps=True,
-        #                                                 unconditional_guidance_scale=args.cfg_scale)
+                x_prev, pred_x0,_ = T_sampler.cache_step(img_batch, c, t_batch, t_batch,
+                                                        use_original_steps=True,
+                                                        unconditional_guidance_scale=args.cfg_scale)
 
-        #         # 결과를 저장
-        #         img_cache[batch_indices] = x_prev
-        #         t_cache[batch_indices] -= 1
+                # 결과를 저장
+                img_cache[batch_indices] = x_prev
+                t_cache[batch_indices] -= 1
 
-        #         if batch_start % 100 == 0:  # 예를 들어, 100 스텝마다 시각화
-        #             visualize_t_cache_distribution(t_cache)
+                if batch_start % 100 == 0:  # 예를 들어, 100 스텝마다 시각화
+                    visualize_t_cache_distribution(t_cache)
 
-        #     save_dir = f"./{args.cachedir}/{args.cache_n}"
-        #     if not os.path.exists(save_dir):
-        #         os.makedirs(save_dir)
+            save_dir = f"./{args.cachedir}/{args.cache_n}"
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir)
             
-        #     # Save img_cache, t_cache, and class_cache as .pt files
-        #     torch.save(img_cache, f"{save_dir}/img_cache_{args.cache_n}.pt")
-        #     torch.save(t_cache, f"{save_dir}/t_cache_{args.cache_n}.pt")
-        #     torch.save(class_cache, f"{save_dir}/class_cache_{args.cache_n}.pt")
+            # Save img_cache, t_cache, and class_cache as .pt files
+            torch.save(img_cache, f"{save_dir}/img_cache_{args.cache_n}.pt")
+            torch.save(t_cache, f"{save_dir}/t_cache_{args.cache_n}.pt")
+            torch.save(class_cache, f"{save_dir}/class_cache_{args.cache_n}.pt")
+            
+            img_to_save = img_cache[0:args.cache_n, args.cache_n*200:args.cache_n*201, args.cache_n*400:args.cache_n*401, args.cache_n*600:args.cache_n*601 ]
+            img = T_model.decode_first_stage(img_to_save)
+            img = torch.clamp((img + 1.0) / 2.0, min=0.0, max=1.0)
+            
+                # T_model 결과를 그리드로 변환 및 저장
+            grid_T = torch.stack(img, 0)
+            grid_T = rearrange(grid_T, 'n b c h w -> (n b) c h w')
+            grid_T = make_grid(grid_T, nrow=args.cache_n)
+            # 각각의 그리드를 이미지로 변환
+            grid_T = 255. * rearrange(grid_T, 'c h w -> h w c').cpu().numpy()
+            # 이미지로 저장 (T_model과 S_model의 결과)
+            output_image_T = Image.fromarray(grid_T.astype(np.uint8))
+            output_image_T_path = 'caching_image.png'
+            output_image_T.save(output_image_T_path)
 
-        # print(f"Pre-caching completed and saved to {args.cachedir}")
+            # 저장 경로 설정
+            save_dir = f"./{args.cachedir}/{args.cache_n}/images"
+            os.makedirs(save_dir, exist_ok=True)
+
+
+        print(f"Pre-caching completed and saved to {args.cachedir}")
     
     
         ############################################ precacheing ##################################################
