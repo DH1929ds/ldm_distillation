@@ -56,7 +56,7 @@ def save_samples_as_images(samples, folder_path, class_label, start_idx):
         # 배치 시작 인덱스와 배치 내 인덱스를 결합하여 파일 이름 생성
         output_image.save(os.path.join(class_folder, f'class_{class_label}_sample_{start_idx + i}.png'))
 
-def sampling(model=None, output_folder = "output_samples", device="cuda", large_batch_size=4, small_batch_size=4, num_images=10000,cfg_scale=1.0, ddim_eta=1.0, DDIM_num_steps=25):
+def sampling(model=None, output_folder = "output_samples", device="cuda", large_batch_size=250, small_batch_size=50, num_images=10000,cfg_scale=1.0, ddim_eta=1.0, DDIM_num_steps=25):
     
     if model is None:
         model = get_model()
