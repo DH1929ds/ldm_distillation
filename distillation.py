@@ -30,6 +30,7 @@ from pytorch_lightning import seed_everything
 
 from trainer import distillation_DDPM_trainer
 from funcs import load_model_from_config, get_model_teacher, load_model_from_config_without_ckpt, get_model_student, initialize_params, sample_save_images, save_checkpoint, print_gpu_memory_usage, visualize_t_cache_distribution
+from gpu_log import GPUMonitor
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -38,7 +39,8 @@ def get_parser():
     parser = argparse.ArgumentParser()
     
     parser.add_argument("--seed", type=int, default=20240911, help="seed for seed_everything")
-    
+    parser.add_argument('--gpu_no', type=int, default=0, help='GPU number to use for training')
+
     parser.add_argument("--trainable_modules", type=tuple, default=(None,), help="Tuple of trainable modules")
     parser.add_argument("--adam_beta1", type=float, default=0.9, help="Beta1 parameter for Adam optimizer")
     parser.add_argument("--adam_beta2", type=float, default=0.999, help="Beta2 parameter for Adam optimizer")
@@ -62,7 +64,7 @@ def get_parser():
     parser.add_argument("--total_steps", type=int, default=800000, help='total training steps')
     parser.add_argument("--img_size", type=int, default=32, help='image size')
     parser.add_argument("--warmup", type=int, default=5000, help='learning rate warmup')
-    parser.add_argument("--batch_size", type=int, default=128, help='batch size')
+    parser.add_argument("--batch_size", type=int, default=64, help='batch size')
     parser.add_argument("--num_workers", type=int, default=4, help='workers of Dataloader')
     parser.add_argument("--ema_decay", type=float, default=0.9999, help="ema decay rate")
     parser.add_argument("--parallel", action='store_true', help='multi gpu training')
@@ -111,7 +113,9 @@ def get_parser():
     
     return parser
 
-def distillation(args):
+def distillation(args, gpu_num, gpu_no):
+
+    gpu_monitor = GPUMonitor(monitoring_interval=2)
 
     # Initialize WandB
     wandb.init(
@@ -126,17 +130,20 @@ def distillation(args):
         }
     )
     
-    #print_gpu_memory_usage('start')
-    
-    T_model = get_model_teacher()
-    T_model.eval
-    
-    #print_gpu_memory_usage('load teacher models')
-    
-    S_model= get_model_student()
-    initialize_params(S_model)
+ 
+    gpu_monitor.start("model_load_start!!")
 
-    #print_gpu_memory_usage('load student models')
+    T_model = get_model_teacher()
+    S_model= get_model_student()
+    T_model = T_model.cuda(gpu_no)
+    S_model = S_model.cuda((gpu_no + 1) % gpu_num)
+
+    T_device = T_model.device
+    S_device = S_model.device
+
+    initialize_params(S_model)
+    
+    gpu_monitor.stop("model_load_finish!!")
     
     all_params_student = list(S_model.parameters())
     trainable_params_student = list(filter(lambda p: p.requires_grad, S_model.parameters()))
@@ -155,6 +162,8 @@ def distillation(args):
 
     print(f"Teacher: Number of All parameters: {num_all_params_teacher}")
     print(f"Teacher: Number of trainable parameters: {num_trainable_params_teacher}")
+    
+    gpu_monitor.start("optimizer_load_start!!")
 
     optimizer = torch.optim.AdamW(
         trainable_params_student,
@@ -163,8 +172,8 @@ def distillation(args):
         weight_decay=args.adam_weight_decay,
         eps=args.adam_epsilon,
     )
-    
-    #print_gpu_memory_usage('student models to optimizer')
+    gpu_monitor.stop("optimizer_load_finish!!")
+
     
 
     lr_scheduler = get_scheduler(
@@ -182,20 +191,20 @@ def distillation(args):
     T_sampler.make_schedule(ddim_num_steps = args.DDIM_num_steps, ddim_eta= 1, verbose=False)
     S_sampler.make_schedule(ddim_num_steps = args.DDIM_num_steps, ddim_eta= 1, verbose=False)
      
-    trainer = distillation_DDPM_trainer(T_model, S_model, T_sampler, S_sampler, args.distill_features).to(device)
+    trainer = distillation_DDPM_trainer(T_model, S_model, T_sampler, S_sampler, args.distill_features)
 
     if args.is_precache:
         ############################################ precacheing ##################################################
-        # cache_size = args.cache_n*1000
+        cache_size = args.cache_n*1000
         
-        # img_cache = torch.randn(cache_size, T_model.channels, T_model.image_size, T_model.image_size).to(device)
-        # t_cache = torch.ones(cache_size, dtype=torch.long, device=device)*(args.T-1)
-        # class_cache = torch.randint(0, 950, (cache_size,), device=device)
+        img_cache = torch.randn(cache_size, T_model.channels, T_model.image_size, T_model.image_size).to(T_device)
+        t_cache = torch.ones(cache_size, dtype=torch.long, device=T_device)*(args.T-1)
+        class_cache = torch.randint(0, 950, (cache_size,), device=T_device)
     
-        # # 10%의 인덱스를 무작위로 선택하여 1000으로 설정
-        # num_to_replace = int(cache_size * 0.1)  # 전체 크기의 10%
-        # indices = torch.randperm(cache_size)[:num_to_replace]  # 랜덤으로 인덱스 선택
-        # class_cache[indices] = 1000
+        # 10%의 인덱스를 무작위로 선택하여 1000으로 설정
+        num_to_replace = int(cache_size * 0.1)  # 전체 크기의 10%
+        indices = torch.randperm(cache_size)[:num_to_replace]  # 랜덤으로 인덱스 선택
+        class_cache[indices] = 1000
         
         # #print_gpu_memory_usage('make cache')
         
@@ -233,91 +242,78 @@ def distillation(args):
         #     torch.save(class_cache, f"{save_dir}/class_cache_{args.cache_n}.pt")
     
         # print(f"Pre-caching completed and saved to {args.cachedir}")
-        cache_size = args.cache_n*1000
         
-        img_cache = torch.randn(cache_size, T_model.channels, T_model.image_size, T_model.image_size).to(device)
-        t_cache = torch.ones(cache_size, dtype=torch.long, device=device)*(args.T-1)
-        class_cache = torch.randint(0, 950, (cache_size,), device=device)
+        # #print_gpu_memory_usage('make cache')
+        # with torch.no_grad():
+        #     indices = []
+        #     for i in range(args.T):
+        #         if (i+1) * args.cache_n > args.caching_batch_size:
+        #             indices.extend(range(0, (i+1)*args.cache_n))
+                    
+        #         else:    
+        #             start_idx = 0
+        #             end_idx = (i+1) * args.cache_n
 
-        # 10%의 인덱스를 무작위로 선택하여 1000으로 설정
-        num_to_replace = int(cache_size * 0.1)  # 전체 크기의 10%
-        indices = torch.randperm(cache_size)[:num_to_replace]  # 랜덤으로 인덱스 선택
-        class_cache[indices] = 1000
-        
-        #print_gpu_memory_usage('make cache')
-        with torch.no_grad():
-            indices = []
-            for i in range(args.T):
-                if (i+1) * args.cache_n > args.caching_batch_size:
-                    indices.extend(range(0, (i+1)*args.cache_n))
+        #             img_batch = img_cache[start_idx:end_idx]
+        #             t_batch = t_cache[start_idx:end_idx]
+        #             class_batch = class_cache[start_idx:end_idx]
                     
-                else:    
-                    start_idx = 0
-                    end_idx = (i+1) * args.cache_n
-
-                    img_batch = img_cache[start_idx:end_idx]
-                    t_batch = t_cache[start_idx:end_idx]
-                    class_batch = class_cache[start_idx:end_idx]
+        #             c = T_model.get_learned_conditioning(
+        #                         {T_model.cond_stage_key: class_batch})
                     
-                    c = T_model.get_learned_conditioning(
-                                {T_model.cond_stage_key: class_batch})
+        #             x_prev, pred_x0,_ = T_sampler.cache_step(img_batch, c, t_batch, t_batch,
+        #                                                                 use_original_steps=True,
+        #                                                                 unconditional_guidance_scale=args.cfg_scale)
                     
-                    x_prev, pred_x0,_ = T_sampler.cache_step(img_batch, c, t_batch, t_batch,
-                                                                        use_original_steps=True,
-                                                                        unconditional_guidance_scale=args.cfg_scale)
-                    
-                    img_cache[start_idx:end_idx]  = x_prev
-                    t_cache[start_idx:end_idx] -=1
+        #             img_cache[start_idx:end_idx]  = x_prev
+        #             t_cache[start_idx:end_idx] -=1
             
-            # Batch size만큼의 인덱스를 뽑아오는 과정
-            for batch_start in trange(0, len(indices), args.caching_batch_size, desc="Pre-caching"):
-                batch_end = min(batch_start + args.caching_batch_size, len(indices))  # 인덱스 범위를 벗어나지 않도록 처리
-                batch_indices = indices[batch_start:batch_end]  # Batch size만큼 인덱스 선택
+        #     # Batch size만큼의 인덱스를 뽑아오는 과정
+        #     for batch_start in trange(0, len(indices), args.caching_batch_size, desc="Pre-caching"):
+        #         batch_end = min(batch_start + args.caching_batch_size, len(indices))  # 인덱스 범위를 벗어나지 않도록 처리
+        #         batch_indices = indices[batch_start:batch_end]  # Batch size만큼 인덱스 선택
 
-                # 인덱스를 이용해 배치 선택
-                img_batch = img_cache[batch_indices]
-                t_batch = t_cache[batch_indices]
-                class_batch = class_cache[batch_indices]
-                # 모델에 적용
-                c = T_model.get_learned_conditioning(
-                    {T_model.cond_stage_key: class_batch}
-                )
+        #         # 인덱스를 이용해 배치 선택
+        #         img_batch = img_cache[batch_indices]
+        #         t_batch = t_cache[batch_indices]
+        #         class_batch = class_cache[batch_indices]
+        #         # 모델에 적용
+        #         c = T_model.get_learned_conditioning(
+        #             {T_model.cond_stage_key: class_batch}
+        #         )
 
-                x_prev, pred_x0,_ = T_sampler.cache_step(img_batch, c, t_batch, t_batch,
-                                                        use_original_steps=True,
-                                                        unconditional_guidance_scale=args.cfg_scale)
+        #         x_prev, pred_x0,_ = T_sampler.cache_step(img_batch, c, t_batch, t_batch,
+        #                                                 use_original_steps=True,
+        #                                                 unconditional_guidance_scale=args.cfg_scale)
 
-                # 결과를 저장
-                img_cache[batch_indices] = x_prev
-                t_cache[batch_indices] -= 1
+        #         # 결과를 저장
+        #         img_cache[batch_indices] = x_prev
+        #         t_cache[batch_indices] -= 1
 
-                if batch_start % 100 == 0:  # 예를 들어, 100 스텝마다 시각화
-                    visualize_t_cache_distribution(t_cache)
+        #         if batch_start % 100 == 0:  # 예를 들어, 100 스텝마다 시각화
+        #             visualize_t_cache_distribution(t_cache)
 
-            save_dir = f"./{args.cachedir}/{args.cache_n}"
-            if not os.path.exists(save_dir):
-                os.makedirs(save_dir)
+        #     save_dir = f"./{args.cachedir}/{args.cache_n}"
+        #     if not os.path.exists(save_dir):
+        #         os.makedirs(save_dir)
             
-            # Save img_cache, t_cache, and class_cache as .pt files
-            torch.save(img_cache, f"{save_dir}/img_cache_{args.cache_n}.pt")
-            torch.save(t_cache, f"{save_dir}/t_cache_{args.cache_n}.pt")
-            torch.save(class_cache, f"{save_dir}/class_cache_{args.cache_n}.pt")
+        #     # Save img_cache, t_cache, and class_cache as .pt files
+        #     torch.save(img_cache, f"{save_dir}/img_cache_{args.cache_n}.pt")
+        #     torch.save(t_cache, f"{save_dir}/t_cache_{args.cache_n}.pt")
+        #     torch.save(class_cache, f"{save_dir}/class_cache_{args.cache_n}.pt")
 
-        print(f"Pre-caching completed and saved to {args.cachedir}")
+        # print(f"Pre-caching completed and saved to {args.cachedir}")
     
     
         ############################################ precacheing ##################################################
 
     else:
         save_dir = f"./{args.cachedir}/{args.cache_n}"
-        img_cache = torch.load(f"{save_dir}/img_cache_{args.cache_n}.pt").to(device)
-        t_cache = torch.load(f"{save_dir}/t_cache_{args.cache_n}.pt").to(device)
-        class_cache = torch.load(f"{save_dir}/class_cache_{args.cache_n}.pt").to(device)
+        img_cache = torch.load(f"{save_dir}/img_cache_{args.cache_n}.pt").to(T_device)
+        t_cache = torch.load(f"{save_dir}/t_cache_{args.cache_n}.pt").to(T_device)
+        class_cache = torch.load(f"{save_dir}/class_cache_{args.cache_n}.pt").to(T_device)
 
     
-
-
-        
         # pt로 image_cache, t_cache 저장
 
     # with torch.no_grad():
@@ -363,36 +359,35 @@ def distillation(args):
             #                                 eta=1)
                     
     ##################################
-
     with trange(args.total_steps, dynamic_ncols=True) as pbar:
         for step in pbar:
             optimizer.zero_grad()
 
             # Step 2: Randomly sample from img_cache and t_cache without shuffling
-            indices = torch.randint(0, img_cache.size(0), (args.batch_size,), device=device)
+            indices = torch.randint(0, img_cache.size(0), (args.batch_size,), device=T_device)
 
             # Sample img_cache and t_cache using the random indices
             x_t = img_cache[indices]
             t = t_cache[indices]
-            with torch.no_grad():
-                c = T_model.get_learned_conditioning(
-                            {T_model.cond_stage_key: class_cache[indices]})
-
-            #print_gpu_memory_usage('batch slicing')
+            c = T_model.get_learned_conditioning(
+                        {T_model.cond_stage_key: class_cache[indices]})
+            gpu_monitor.start("before_forward_start!!")
             
             # Calculate distillation loss
             output_loss, total_loss, x_prev = trainer(x_t, c, t, args.cfg_scale)
 
-            #print_gpu_memory_usage('loss')
-            
+            gpu_monitor.stop("forward_stop!!")
+
+            gpu_monitor.start("loss backward_start!!")
             # Backward and optimize
             total_loss.backward()
             # torch.nn.utils.clip_grad_norm_(S_model.parameters(), args.grad_clip)
-            
-            #print_gpu_memory_usage('backward')
-            
+            gpu_monitor.stop("loss backward_stop!!")
+
+            gpu_monitor.start("optimizer step_start!!")
             optimizer.step()
             lr_scheduler.step()
+            gpu_monitor.stop("optimizer step_stop!!")
 
             ### cache update ###
             img_cache[indices] = x_prev
@@ -425,11 +420,13 @@ def distillation(args):
             # 0인 인덱스가 있는 경우에만 초기화 수행
             if num_zero_indices > 0:
                 # 0인 인덱스를 T-1 로 변환
-                t_cache[zero_indices] = torch.ones(num_zero_indices, dtype=torch.long, device=device) *(args.T-1)
-                img_cache[zero_indices] = torch.randn(num_zero_indices, T_model.channels, T_model.img_size, T_model.img_size).to(device)
+                t_cache[zero_indices] = torch.ones(num_zero_indices, dtype=torch.long, device=T_device) *(args.T-1)
+                img_cache[zero_indices] = torch.randn(num_zero_indices, T_model.channels, T_model.img_size, T_model.img_size).to(T_device)
 
-            
-            
+            gpu_monitor.start("cuda empty cache_start!!")
+            torch.cuda.empty_cache()  # 메모리 해제
+            gpu_monitor.stop("cuda empty cache_stop!!")
+
             # Logging with WandB
             wandb.log({
                 'distill_loss': total_loss.item(),
@@ -452,13 +449,19 @@ def distillation(args):
     wandb.finish()
 
 
+
 def main(argv):
     warnings.simplefilter(action='ignore', category=FutureWarning)
     
     parser = get_parser()
     distill_args = parser.parse_args(argv[1:])  # argv[1:]로 수정하여 인자 전달
     seed_everything(distill_args.seed)
-    distillation(distill_args)
+    
+    # GPU 번호를 argparse 인자로 받기
+    gpu_no = distill_args.gpu_no
+    # 전체 GPU 개수 가져오기
+    gpu_num = torch.cuda.device_count()
+    distillation(distill_args, gpu_num, gpu_no)
 
 if __name__ == '__main__':
     main(sys.argv)  # main()을 직접 호출
