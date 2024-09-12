@@ -87,6 +87,7 @@ def get_parser():
     
     # Caching
     parser.add_argument("--cache_n", type=int, default=64, help='size of caching data per timestep')
+    parser.add_argument("--caching_batch_size", type=int, default=256, help='batch size for pre-caching')
     parser.add_argument('--cachedir', type=str, default='./cache', help='log directory')
     parser.add_argument("--is_precache", action="store_true", help="whether to perform pre-caching")
 
@@ -185,43 +186,111 @@ def distillation(args):
 
     if args.is_precache:
         ############################################ precacheing ##################################################
+        # cache_size = args.cache_n*1000
+        
+        # img_cache = torch.randn(cache_size, T_model.channels, T_model.image_size, T_model.image_size).to(device)
+        # t_cache = torch.ones(cache_size, dtype=torch.long, device=device)*(args.T-1)
+        # class_cache = torch.randint(0, 950, (cache_size,), device=device)
+    
+        # # 10%의 인덱스를 무작위로 선택하여 1000으로 설정
+        # num_to_replace = int(cache_size * 0.1)  # 전체 크기의 10%
+        # indices = torch.randperm(cache_size)[:num_to_replace]  # 랜덤으로 인덱스 선택
+        # class_cache[indices] = 1000
+        
+        # #print_gpu_memory_usage('make cache')
+        
+        # with torch.no_grad():
+        #     for i in range(args.T):
+        #         start_time = time.time()
+                
+        #         start_idx = (i * args.cache_n)
+        #         end_idx = start_idx + args.cache_n
+                
+        #         # 슬라이스 처리
+        #         img_batch = img_cache[start_idx:end_idx]
+        #         t_batch = t_cache[start_idx:end_idx]
+        #         class_batch = class_cache[start_idx:end_idx]
+                
+        #         c = T_model.get_learned_conditioning(
+        #                     {T_model.cond_stage_key: class_batch})
+                
+                
+        #         img_cache[start_idx:end_idx] = T_sampler.DDPM_target_t(img_batch, c, target_t = i)
+        #         t_cache[start_idx:end_idx] = torch.ones(args.cache_n, dtype=torch.long, device=device)*(i)
+     
+        #         print(f"start_idx: {start_idx}, end_idx: {end_idx}")
+    
+        #         elapsed_time = time.time() - start_time
+        #         print(f"Iteration {i + 1}/{args.T} completed in {elapsed_time:.2f} seconds.")
+    
+        #     save_dir = f"./{args.cachedir}/{args.cache_n}"
+        #     if not os.path.exists(save_dir):
+        #         os.makedirs(save_dir)
+            
+        #     # Save img_cache, t_cache, and class_cache as .pt files
+        #     torch.save(img_cache, f"{save_dir}/img_cache_{args.cache_n}.pt")
+        #     torch.save(t_cache, f"{save_dir}/t_cache_{args.cache_n}.pt")
+        #     torch.save(class_cache, f"{save_dir}/class_cache_{args.cache_n}.pt")
+    
+        # print(f"Pre-caching completed and saved to {args.cachedir}")
         cache_size = args.cache_n*1000
         
         img_cache = torch.randn(cache_size, T_model.channels, T_model.image_size, T_model.image_size).to(device)
         t_cache = torch.ones(cache_size, dtype=torch.long, device=device)*(args.T-1)
         class_cache = torch.randint(0, 950, (cache_size,), device=device)
-    
+
         # 10%의 인덱스를 무작위로 선택하여 1000으로 설정
         num_to_replace = int(cache_size * 0.1)  # 전체 크기의 10%
         indices = torch.randperm(cache_size)[:num_to_replace]  # 랜덤으로 인덱스 선택
         class_cache[indices] = 1000
         
         #print_gpu_memory_usage('make cache')
-        
         with torch.no_grad():
+            indices = []
             for i in range(args.T):
-                start_time = time.time()
-                
-                start_idx = (i * args.cache_n)
-                end_idx = start_idx + args.cache_n
-                
-                # 슬라이스 처리
-                img_batch = img_cache[start_idx:end_idx]
-                t_batch = t_cache[start_idx:end_idx]
-                class_batch = class_cache[start_idx:end_idx]
-                
+                if (i+1) * args.cache_n > args.caching_batch_size:
+                    indices.extend(range(0, (i+1)*args.cache_n))
+                    
+                else:    
+                    start_idx = 0
+                    end_idx = (i+1) * args.cache_n
+                    
+                    t_batch = t_cache[start_idx:end_idx]
+                    class_batch = class_cache[start_idx:end_idx]
+                    
+                    c = T_model.get_learned_conditioning(
+                                {T_model.cond_stage_key: class_batch})
+                    
+                    x_prev, pred_x0 = T_sampler.p_sample_ddim(img_batch, c, t_batch, t_batch,
+                                                                        use_original_steps=True,
+                                                                        unconditional_guidance_scale=args.cfg_scale)
+                    
+                    img_cache[start_idx:end_idx]  = x_prev
+                    t_cache[start_idx:end_idx] -=1
+            
+            # Batch size만큼의 인덱스를 뽑아오는 과정
+            for batch_start in trange(0, len(indices), args.caching_batch_size, desc="Pre-caching"):
+                batch_end = min(batch_start + args.caching_batch_size, len(indices))  # 인덱스 범위를 벗어나지 않도록 처리
+                batch_indices = indices[batch_start:batch_end]  # Batch size만큼 인덱스 선택
+
+                # 인덱스를 이용해 배치 선택
+                t_batch = t_cache[batch_indices]
+                class_batch = class_cache[batch_indices]
+                img_batch = img_cache[batch_indices]  # img_batch가 필요한 경우 추가
+
+                # 모델에 적용
                 c = T_model.get_learned_conditioning(
-                            {T_model.cond_stage_key: class_batch})
-                
-                
-                img_cache[start_idx:end_idx] = T_sampler.DDPM_target_t(img_batch, c, target_t = i)
-                t_cache[start_idx:end_idx] = torch.ones(args.cache_n, dtype=torch.long, device=device)*(i)
-     
-                print(f"start_idx: {start_idx}, end_idx: {end_idx}")
-    
-                elapsed_time = time.time() - start_time
-                print(f"Iteration {i + 1}/{args.T} completed in {elapsed_time:.2f} seconds.")
-    
+                    {T_model.cond_stage_key: class_batch}
+                )
+
+                x_prev, pred_x0 = T_sampler.p_sample_ddim(img_batch, c, t_batch, t_batch,
+                                                        use_original_steps=True,
+                                                        unconditional_guidance_scale=args.cfg_scale)
+
+                # 결과를 저장
+                img_cache[batch_indices] = x_prev
+                t_cache[batch_indices] -= 1
+
             save_dir = f"./{args.cachedir}/{args.cache_n}"
             if not os.path.exists(save_dir):
                 os.makedirs(save_dir)
@@ -230,8 +299,9 @@ def distillation(args):
             torch.save(img_cache, f"{save_dir}/img_cache_{args.cache_n}.pt")
             torch.save(t_cache, f"{save_dir}/t_cache_{args.cache_n}.pt")
             torch.save(class_cache, f"{save_dir}/class_cache_{args.cache_n}.pt")
-    
+
         print(f"Pre-caching completed and saved to {args.cachedir}")
+    
     
         ############################################ precacheing ##################################################
 
@@ -243,6 +313,8 @@ def distillation(args):
 
     
 
+
+        
         # pt로 image_cache, t_cache 저장
 
     # with torch.no_grad():
