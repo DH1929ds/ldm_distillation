@@ -195,7 +195,7 @@ def distillation(args, gpu_num, gpu_no):
 
     if args.is_precache:
         ############################################ precacheing ##################################################
-        cache_size = args.cache_n*1000
+        cache_size = args.cache_n*args.T
         
         img_cache = torch.randn(cache_size, T_model.channels, T_model.image_size, T_model.image_size).to(T_device)
         t_cache = torch.ones(cache_size, dtype=torch.long, device=T_device)*(args.T-1)
@@ -279,8 +279,8 @@ def distillation(args, gpu_num, gpu_no):
             for i in range(int(args.T/2)):
                 indices.extend(range(500 * args.cache_n))
             
-            for batch_start in trange(0, len(args.T * args.cache_n), args.caching_batch_size, desc="Pre-class_caching"):
-                batch_end = min(batch_start + args.caching_batch_size, len(args.T * args.cache_n))  # 인덱스 범위를 벗어나지 않도록 처리
+            for batch_start in trange(0, cache_size, args.caching_batch_size, desc="Pre-class_caching"):
+                batch_end = min(batch_start + args.caching_batch_size, cache_size)  # 인덱스 범위를 벗어나지 않도록 처리
                 class_batch = class_cache[batch_start:batch_end]
                 
                 c = T_model.get_learned_conditioning(
