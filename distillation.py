@@ -268,14 +268,14 @@ def distillation(args, gpu_num, gpu_no):
             #         img_cache[start_idx:end_idx]  = x_prev
             #         t_cache[start_idx:end_idx] -=1
             
-            for i in range(1,args.T/2):
+            for i in range(1,int(args.T/2)):
                 # 0부터 i*n까지의 값
                 indices.extend(range(i * args.cache_n))
                 
                 # (1000-i)*n부터 500*n까지의 값
                 indices.extend(range((1000 - i) * args.cache_n, 500 * args.cache_n, -1))
                 
-            for i in range(args.T/2):
+            for i in range(int(args.T/2)):
                 indices.extend(range(500 * args.cache_n))
                 
             # Batch size만큼의 인덱스를 뽑아오는 과정
