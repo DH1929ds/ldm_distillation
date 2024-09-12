@@ -32,6 +32,8 @@ from trainer import distillation_DDPM_trainer
 from funcs import load_model_from_config, get_model_teacher, load_model_from_config_without_ckpt, get_model_student, initialize_params, sample_save_images, save_checkpoint, print_gpu_memory_usage, visualize_t_cache_distribution
 from gpu_log import GPUMonitor
 
+from eval_funcs import sample_and_cal_fid
+
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
@@ -83,7 +85,7 @@ def get_parser():
     # Evaluation
     parser.add_argument("--save_step", type=int, default=50000, help='frequency of saving checkpoints, 0 to disable during training')
     parser.add_argument("--eval_step", type=int, default=100000, help='frequency of evaluating model, 0 to disable during training')
-    parser.add_argument("--num_images", type=int, default=50000, help='the number of generated images for evaluation')
+    parser.add_argument("--num_images", type=int, default=10000, help='the number of generated images for evaluation')
     parser.add_argument("--fid_use_torch", action='store_true', help='calculate IS and FID on gpu')
     parser.add_argument("--fid_cache", type=str, default='./stats/cifar10.train.npz', help='FID cache')
     
@@ -104,7 +106,6 @@ def get_parser():
     parser.add_argument("--sample_save_ddim_steps", type=int, default=20, help='number of DDIM sampling steps')
     parser.add_argument("--ddim_eta", type=float, default=1.0, help='DDIM eta parameter for noise level')
     parser.add_argument("--cfg_scale", type=float, default=1, help='guidance scale for unconditional guidance, 1 or none = no guidance, 0 = uncond')
-    
 
     #Directory
     # parser.add_argument('--logdir', type=str, default='./logs', help='log directory')
@@ -349,6 +350,8 @@ def distillation(args, gpu_num, gpu_no):
     
         ############################################ precacheing ##################################################
 
+    ###
+    
     else:
         save_dir = f"./{args.cachedir}/{args.cache_n}"
         img_cache = torch.load(f"{save_dir}/img_cache_{args.cache_n}.pt").to(T_device)
@@ -419,9 +422,12 @@ def distillation(args, gpu_num, gpu_no):
             #                                 unconditional_guidance_scale=args.cfg_scale, #우선 1로
             #                                 unconditional_conditioning=uc,
             #                                 eta=1)
-                    
+    
+    
     ##################################
+    
     with trange(args.total_steps, dynamic_ncols=True) as pbar:
+        
         for step in pbar:
             optimizer.zero_grad()
 
@@ -502,12 +508,28 @@ def distillation(args, gpu_num, gpu_no):
                                    args.sample_save_ddim_steps, args.ddim_eta, args.cfg_scale, 
                                    T_model, S_model, T_sampler, S_sampler, step)
                 
-
+        
             ################### Save student model ################################
             if args.save_step > 0 and step % args.save_step == 0:
                 save_checkpoint(S_model, lr_scheduler, optimizer, step, args.logdir)
             ################### Evaluate student model ##############################
-
+            if args.eval_step > 0 and step % args.eval_step == 0:# and step != 0:
+                S_model.eval()
+                
+                fid_a, fid_b, fid_c = sample_and_cal_fid(model=S_model , device=device, num_images=args.num_images, ddim_eta = args.ddim_eta, cfg_scale = args.cfg_scale, DDIM_num_steps=args.DDIM_num_steps)
+                
+                S_model.train()
+                
+                metrics = {
+                    'Student_FID_A': fid_a,
+                    'Student_FID_B': fid_b,
+                    'Student_FID_C': fid_c,
+                }
+                
+                print(metrics)
+                
+                # Log metrics to wandb
+                wandb.log(metrics, step=step)
     wandb.finish()
 
 
