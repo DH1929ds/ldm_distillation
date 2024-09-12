@@ -67,8 +67,6 @@ class distillation_DDPM_trainer(nn.Module):
             t = t.to(self.S_model.device)
             c = c.to(self.S_model.device)
 
-            print("t.device in trainer.py: ", t.device)
-
             S_output = self.S_model.apply_model(x_t, t, c)
             T_output = T_output.to(self.S_model.device)
 
