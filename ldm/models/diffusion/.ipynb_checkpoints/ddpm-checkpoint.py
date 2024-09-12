@@ -984,13 +984,22 @@ class LatentDiffusion(DDPM):
             x_recon = fold(o) / normalization
 
         else:
-            print("t.device in apply_model: ", t.device)
-            x_recon = self.model(x_noisy, t, **cond, is_feature=is_feature)
+            if is_feature:
+                x_recon, features = self.model(x_noisy, t, **cond, is_feature=is_feature)
+            else:
+                x_recon = self.model(x_noisy, t, **cond, is_feature=is_feature)
 
         if isinstance(x_recon, tuple) and not return_ids:
-            return x_recon[0]
+            if is_feature:
+                return x_recon[0], features
+            else:
+                return x_recon[0]
         else:
-            return x_recon
+            if is_feature:
+                return x_recon, features
+            else:
+                return x_recon
+            
 
     def _predict_eps_from_xstart(self, x_t, t, pred_xstart):
         return (extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t - pred_xstart) / \
@@ -1401,27 +1410,49 @@ class DiffusionWrapper(pl.LightningModule):
         assert self.conditioning_key in [None, 'concat', 'crossattn', 'hybrid', 'adm']
 
     def forward(self, x, t, c_concat: list = None, c_crossattn: list = None, is_feature=False):
-        print("t.device in diffusionwrapper: ", t.device)
+        print("##########################################")
+        print("self.conditioning_key: ", self.conditioning_key)
+        print("##########################################")
 
-        if self.conditioning_key is None:
-            out = self.diffusion_model(x, t, is_feature=is_feature)
-        elif self.conditioning_key == 'concat':
-            xc = torch.cat([x] + c_concat, dim=1)
-            out = self.diffusion_model(xc, t, is_feature=is_feature)
-        elif self.conditioning_key == 'crossattn':
-            cc = torch.cat(c_crossattn, 1)
-            out = self.diffusion_model(x, t, context=cc, is_feature=is_feature)
-        elif self.conditioning_key == 'hybrid':
-            xc = torch.cat([x] + c_concat, dim=1)
-            cc = torch.cat(c_crossattn, 1)
-            out = self.diffusion_model(xc, t, context=cc, is_feature=is_feature)
-        elif self.conditioning_key == 'adm':
-            cc = c_crossattn[0]
-            out = self.diffusion_model(x, t, y=cc, is_feature=is_feature)
+        if is_feature:
+            if self.conditioning_key is None:
+                out, features = self.diffusion_model(x, t, is_feature=is_feature)
+            elif self.conditioning_key == 'concat':
+                xc = torch.cat([x] + c_concat, dim=1)
+                out, features = self.diffusion_model(xc, t, is_feature=is_feature)
+            elif self.conditioning_key == 'crossattn':
+                cc = torch.cat(c_crossattn, 1)
+                out, features = self.diffusion_model(x, t, context=cc, is_feature=is_feature)
+            elif self.conditioning_key == 'hybrid':
+                xc = torch.cat([x] + c_concat, dim=1)
+                cc = torch.cat(c_crossattn, 1)
+                out, features = self.diffusion_model(xc, t, context=cc, is_feature=is_feature)
+            elif self.conditioning_key == 'adm':
+                cc = c_crossattn[0]
+                out, features = self.diffusion_model(x, t, y=cc, is_feature=is_feature)
+            else:
+                raise NotImplementedError()
+            return out, features
+        
         else:
-            raise NotImplementedError()
-
-        return out
+            if self.conditioning_key is None:
+                out = self.diffusion_model(x, t, is_feature=is_feature)
+            elif self.conditioning_key == 'concat':
+                xc = torch.cat([x] + c_concat, dim=1)
+                out = self.diffusion_model(xc, t, is_feature=is_feature)
+            elif self.conditioning_key == 'crossattn':
+                cc = torch.cat(c_crossattn, 1)
+                out = self.diffusion_model(x, t, context=cc, is_feature=is_feature)
+            elif self.conditioning_key == 'hybrid':
+                xc = torch.cat([x] + c_concat, dim=1)
+                cc = torch.cat(c_crossattn, 1)
+                out = self.diffusion_model(xc, t, context=cc, is_feature=is_feature)
+            elif self.conditioning_key == 'adm':
+                cc = c_crossattn[0]
+                out = self.diffusion_model(x, t, y=cc, is_feature=is_feature)
+            else:
+                raise NotImplementedError()
+            return out
 
 
 class Layout2ImgDiffusion(LatentDiffusion):

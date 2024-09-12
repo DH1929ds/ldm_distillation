@@ -25,19 +25,26 @@ class distillation_DDPM_trainer(nn.Module):
             # Teacher model forward pass (in evaluation mode)
             with torch.no_grad():
                 #teacher_output, teacher_features = self.T_model.forward_features(x_t, t)
-                T_output, T_features, x_prev, pred_x0 = self.T_model.cache_step(x_t, c, t, 
+                x_prev, pred_x0, T_output, T_features = self.T_sampler.cache_step(x_t, c, t, t,
                                                                       use_original_steps = True, 
                                                                       unconditional_guidance_scale = cfg_scale,
                                                                       is_feature=self.distill_features)
 
+          
             # Student model forward pass
+            x_t = x_t.to(self.S_model.device)
+            t = t.to(self.S_model.device)
+            c = c.to(self.S_model.device)
+            
             #student_output, student_features = self.S_model.forward_features(x_t, t)
-            S_output, S_features = self.S_model.apply_model(x_t, t, is_feature=self.distill_features)
-    
+            S_output, S_features = self.S_model.apply_model(x_t, t, c, is_feature=self.distill_features)
+            T_output = T_output.to(self.S_model.device)
+            
             output_loss = F.mse_loss(S_output, T_output, reduction='mean')
             
             feature_loss = 0
             for student_feature, teacher_feature in zip(S_features, T_features):
+                teacher_feature = teacher_feature.to(self.S_model.device)
                 feature_loss += F.mse_loss(student_feature, teacher_feature, reduction='mean')
                 
             total_loss = output_loss + feature_loss / len(S_features)
