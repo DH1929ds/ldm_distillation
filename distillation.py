@@ -275,7 +275,7 @@ def distillation(args, gpu_num, gpu_no):
                 indices.extend(range(i * args.cache_n))
                 
                 # (1000-i)*n부터 500*n까지의 값
-                indices.extend(range((1000 - i) * args.cache_n, 500 * args.cache_n, -1))
+                indices.extend(range((1000 - i) * args.cache_n-1, 500 * args.cache_n-1, -1))
                 
             for i in range(int(args.T/2)):
                 indices.extend(range(500 * args.cache_n))
@@ -312,7 +312,9 @@ def distillation(args, gpu_num, gpu_no):
 
                 if batch_start % 100 == 0:  # 예를 들어, 100 스텝마다 시각화
                     visualize_t_cache_distribution(t_cache, args.cache_n)
-
+                    
+            visualize_t_cache_distribution(t_cache, args.cache_n)
+            
             save_dir = f"./{args.cachedir}/{args.cache_n}"
             if not os.path.exists(save_dir):
                 os.makedirs(save_dir)
