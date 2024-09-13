@@ -105,7 +105,7 @@ def get_parser():
 
 
     #DDIM Sampling
-    parser.add_argument("--DDPM_sampling", action="store_true", help="whether to perform pre-caching")
+    parser.add_argument("--DDPM_sampling", action="store_false", help="whether to perform pre-caching")
     parser.add_argument("--DDIM_num_steps", type=int, default=50, help='number of DDIM samping steps')
 
     parser.add_argument("--num_sample_class", type=int, default=4, help='number of class for save and sampling')
