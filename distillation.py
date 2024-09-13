@@ -454,7 +454,8 @@ def distillation(args, gpu_num, gpu_no):
             ### cache update ###
             img_cache[indices] = x_prev
             t_cache[indices] -= 1
-            
+            if step%10000 == 0:
+                visualize_t_cache_distribution(t_cache, args.cache_n)
             # num_999 = torch.sum(t_cache == (args.T - 1)).item()
 
             # if num_999 < args.cache_n:
@@ -483,7 +484,7 @@ def distillation(args, gpu_num, gpu_no):
             if num_zero_indices > 0:
                 # 0인 인덱스를 T-1 로 변환
                 t_cache[zero_indices] = torch.ones(num_zero_indices, dtype=torch.long, device=T_device) *(args.T-1)
-                img_cache[zero_indices] = torch.randn(num_zero_indices, T_model.channels, T_model.img_size, T_model.img_size).to(T_device)
+                img_cache[zero_indices] = torch.randn(num_zero_indices, T_model.channels, T_model.image_size, T_model.image_size).to(T_device)
 
             #gpu_monitor.start("cuda empty cache_start!!")
             torch.cuda.empty_cache()  # 메모리 해제
