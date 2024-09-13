@@ -16,7 +16,7 @@ class distillation_DDPM_trainer(nn.Module):
     self.S_sampler = S_sampler
     self.distill_features = distill_features
         
-  def forward(self, x_t, c, t, cfg_scale=1):
+  def forward(self, x_t, c, t, cfg_scale=1, loss_weight = 0.1):
         """
         Perform the forward pass for knowledge distillation.
         """
@@ -47,7 +47,7 @@ class distillation_DDPM_trainer(nn.Module):
                 teacher_feature = teacher_feature.to(self.S_model.device)
                 feature_loss += F.mse_loss(student_feature, teacher_feature, reduction='mean')
                 
-            total_loss = output_loss + feature_loss / len(S_features)
+            total_loss = output_loss + loss_weight * feature_loss / len(S_features)
             
         ############################### TODO ###########################       
         

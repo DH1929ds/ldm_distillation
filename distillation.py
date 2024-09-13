@@ -71,6 +71,7 @@ def get_parser():
     parser.add_argument("--ema_decay", type=float, default=0.9999, help="ema decay rate")
     parser.add_argument("--parallel", action='store_true', help='multi gpu training')
     parser.add_argument("--distill_features", action='store_true', help='perform knowledge distillation using intermediate features')
+    parser.add_argument("--loss_weight", type=float, default=0.1, help="feature loss weighting")
     
     # Logging & Sampling
     parser.add_argument("--logdir", type=str, default='./logs/cin256-v2', help='log directory')
@@ -444,7 +445,7 @@ def distillation(args, gpu_num, gpu_no):
             #gpu_monitor.start("before_forward_start!!")
             
             # Calculate distillation loss
-            output_loss, total_loss, x_prev = trainer(x_t, c, t, args.cfg_scale)
+            output_loss, total_loss, x_prev = trainer(x_t, c, t, args.cfg_scale, args.loss_weight)
 
             #gpu_monitor.stop("forward_stop!!")
 
