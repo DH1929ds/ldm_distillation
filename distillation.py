@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset, DistributedSampler
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.optim.lr_scheduler import LambdaLR
 import torch.multiprocessing as mp
 from omegaconf import OmegaConf
 import numpy as np
@@ -25,6 +26,7 @@ import threading
 import diffusers
 import argparse, os, sys, glob, yaml, math, random
 import time
+from itertools import cycle
 
 from gpu_log import GPUMonitor
 from tqdm import trange
@@ -35,7 +37,7 @@ from ldm.models.diffusion.ddim import DDIMSampler
 from trainer import distillation_DDPM_trainer
 from funcs import load_model_from_config, get_model_teacher, load_model_from_config_without_ckpt, get_model_student, initialize_params, sample_save_images, save_checkpoint, print_gpu_memory_usage, visualize_t_cache_distribution
 from eval_funcs import sample_and_cal_fid
-from data_loaders.cache_data import load_cache, Cache_Dataset, custom_collate_fn, cleanup
+from data_loaders.cache_data import load_cache, Cache_Dataset, custom_collate_fn
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -67,7 +69,7 @@ def get_parser():
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Number of gradient accumulation steps")
     parser.add_argument("--grad_clip", type=float, default=1., help="gradient norm clipping")
     parser.add_argument("--total_steps", type=int, default=800000, help='total training steps')
-    parser.add_argument("--img_size", type=int, default=32, help='image size')
+    parser.add_argument("--epoch", type=int, default=800000, help='epoch')
     parser.add_argument("--warmup", type=int, default=5000, help='learning rate warmup')
     parser.add_argument("--batch_size", type=int, default=64, help='batch size')
     parser.add_argument("--num_workers", type=int, default=4, help='workers of Dataloader')
@@ -95,17 +97,12 @@ def get_parser():
     
     # Caching
     parser.add_argument("--pre_caching", action='store_true', help='only precaching')
-    
-    
     parser.add_argument("--cache_n", type=int, default=64, help='size of caching data per timestep')
     parser.add_argument("--caching_batch_size", type=int, default=256, help='batch size for pre-caching')
     parser.add_argument('--cachedir', type=str, default='./cache', help='log directory')
-    parser.add_argument("--is_precache", action="store_true", help="whether to perform pre-caching")
-
-
 
     #DDIM Sampling
-    parser.add_argument("--DDPM_sampling", action="store_false", help="whether to perform pre-caching")
+    parser.add_argument("--DDPM_sampling", action="store_true", help="sampling using DDPM sampling")
     parser.add_argument("--DDIM_num_steps", type=int, default=50, help='number of DDIM samping steps')
 
     parser.add_argument("--num_sample_class", type=int, default=4, help='number of class for save and sampling')
@@ -242,32 +239,35 @@ def distillation(rank, world_size, args):
     #gpu_monitor = GPUMonitor(monitoring_interval=2)
 
     # Initialize WandB
-    wandb.init(
-        project=args.wandb_project,
-        name=args.wandb_run_name,
-        notes=args.wandb_notes,
-        config={
-            "learning_rate": args.lr,
-            "architecture": "UNet",
-            "dataset": "your_dataset_name",
-            "epochs": args.total_steps,
-        }
-    )
+    if rank == 0:  # Only initialize WandB in one process (e.g., rank 0)
+        wandb.init(
+            project=args.wandb_project,
+            name=args.wandb_run_name,
+            notes=args.wandb_notes,
+            config={
+                "learning_rate": args.lr,
+                "architecture": "UNet",
+                "dataset": "ldm caching",
+                "epochs": args.total_steps,
+            }
+        )
     
 
     # DDP 초기화
-    dist.init_process_group("gloo", rank=rank, world_size=world_size)
+    dist.init_process_group("nccl", rank=rank, world_size=world_size)
     torch.manual_seed(0)
-
+    
+    device = torch.device(f'cuda:{rank}')
     
     T_model = get_model_teacher()
     S_model = get_model_student()
-    device = torch.device(f'cuda:{rank}')
     T_model = T_model.to(device)
     S_model = S_model.to(device)
     T_model = DDP(T_model, device_ids=[rank])
     S_model = DDP(S_model, device_ids=[rank])
-
+    T_model.eval()
+    S_model.train()
+    
     initialize_params(S_model)
     trainable_params_student = list(filter(lambda p: p.requires_grad, S_model.parameters()))
     
@@ -282,55 +282,71 @@ def distillation(rank, world_size, args):
     
     optimizer = torch.optim.AdamW(
         trainable_params_student,
-        lr=args.lr,
-        betas=(args.adam_beta1, args.adam_beta2),
-        weight_decay=args.adam_weight_decay,
-        eps=args.adam_epsilon,
+        lr=args.lr
+        # betas=(args.adam_beta1, args.adam_beta2),
+        # weight_decay=args.adam_weight_decay,
+        # eps=args.adam_epsilon,
     )
 
-    lr_scheduler = get_scheduler(
-        args.lr_scheduler,
-        optimizer=optimizer,
-        num_warmup_steps=args.lr_warmup_steps * args.gradient_accumulation_steps,
-        num_training_steps=args.total_steps
-    )
+    # lr_scheduler = get_scheduler(
+    #     args.lr_scheduler,
+    #     optimizer=optimizer,
+    #     num_warmup_steps=args.lr_warmup_steps * args.gradient_accumulation_steps,
+    #     num_training_steps=args.total_steps
+    # )
+    # scheduler = LambdaLR(optimizer, lr_lambda=scheduler.schedule)
 
 
     img_cache, t_cache, c_emb_cache, class_cache = load_cache(args.cachedir) # 함수 추가
     
     if not img_cache or not t_cache or not c_emb_cache or not class_cache:
-        print("The cache is empty. You need to generate the cache.")
-        exit()
+        print("The cache is empty. You need to generate the cache.")        
+        dist.barrier()  # Synchronize before exit
+        dist.destroy_process_group()
+        sys.exit(1)
     
     cache_dataset = Cache_Dataset(img_cache, t_cache, c_emb_cache, class_cache) # 함수 추가
     
     # DDP를 위한 샘플러와 DataLoader 생성
     sampler = DistributedSampler(cache_dataset, num_replicas=world_size, rank=rank, shuffle=True)
     dataloader = DataLoader(cache_dataset, batch_size=args.batch_size, collate_fn=custom_collate_fn, sampler=sampler)
+    dataloader_cycle = cycle(dataloader)
     
-    for epoch in range(args.num_epochs):
-        sampler.set_epoch(epoch) 
-        with trange(args.total_steps, dynamic_ncols=True) as pbar:
-            for step, (x_t, t, c, _, indices) in zip(pbar, dataloader):
-                optimizer.zero_grad()
+    with trange(args.total_steps, dynamic_ncols=True, disable=(rank != 0)) as pbar:
+        for step in pbar:
+            # step이 epoch의 시작을 나타낼 때마다 sampler의 epoch을 업데이트
+            if step % len(dataloader) == 0:
+                epoch = step // len(dataloader)
+                sampler.set_epoch(epoch)  # Sampler의 epoch을 업데이트하여 새로운 셔플링 수행
 
-                x_t = x_t.to(device)
-                t = t.to(device)
-                c = c.to(device)
-                #gpu_monitor.start("before_forward_start!!")
-                
-                # Calculate distillation loss
-                output_loss, total_loss, x_prev = trainer(x_t, c, t, args.cfg_scale, args.loss_weight)
-                total_loss.backward()
+            # optimizer.zero_grad()
+            
+            # 다음 배치를 가져옴
+            x_t, t, c, _, indices = next(dataloader_cycle)
+
+            x_t = x_t.to(device)
+            t = t.to(device)
+            c = c.to(device)
+            
+            # Calculate distillation loss
+            output_loss, total_loss, x_prev = trainer(x_t, c, t, args.cfg_scale, args.loss_weight)
+            total_loss = total_loss /args.gradient_accumulation_steps
+            total_loss.backward()
+            
+            if (step + 1) % args.gradient_accumulation_steps == 0:
                 optimizer.step()
-                lr_scheduler.step()
+                optimizer.zero_grad()
+                
+            # optimizer.step()
+            # lr_scheduler.step()
 
-                cache_dataset.update_data(indices, x_prev.cpu)
+            cache_dataset.update_data(indices, x_prev.cpu)
+            
+            
+            if rank == 0:
                 
                 if step%1000 == 0:
                     visualize_t_cache_distribution(t_cache, args.cache_n)
-                    
-                torch.cuda.empty_cache()  # 메모리 해제
                 
                 # Logging with WandB
                 wandb.log({
@@ -341,14 +357,15 @@ def distillation(rank, world_size, args):
                 
                 ################### Sample and save student outputs############################
                 if step>0 and args.sample_step > 0 and step % args.sample_step == 0:
+                    S_model.eval()
                     sample_save_images(args.num_sample_class, args.n_sample_per_class, 
                                     args.sample_save_ddim_steps, args.DDPM_sampling, args.ddim_eta, args.cfg_scale, 
                                     T_model, S_model, T_sampler, S_sampler, step)
-                    
+                    S_model.train()
             
                 ################### Save student model ################################
                 if step>0 and args.save_step > 0 and step % args.save_step == 0:
-                    save_checkpoint(S_model, lr_scheduler, optimizer, step, args.logdir)
+                    save_checkpoint(S_model, optimizer, step, args.logdir)
                     
                 ################### Evaluate student model ##############################
                 if step>0 and args.eval_step > 0 and step % args.eval_step == 0:# and step != 0:
@@ -367,8 +384,11 @@ def distillation(rank, world_size, args):
                     print(metrics)
                     # Log metrics to wandb
                     wandb.log(metrics, step=step)
-    cleanup()                
-    wandb.finish()
+    # DDP 정리 및 WandB 로깅 종료
+    dist.barrier()
+    dist.destroy_process_group()
+    if rank == 0:
+        wandb.finish()
 
 
 
@@ -383,7 +403,21 @@ def main(argv):
         pre_caching(distill_args)
         
     else:
-        distillation(distill_args)
+        # Set the world size to the number of available GPUs
+        world_size = torch.cuda.device_count()
+
+        # Ensure we have multiple GPUs available
+        if world_size < 1:
+            print("No GPUs available for DDP. Exiting...")
+            sys.exit(1)
+
+        # Spawn processes for DDP
+        mp.spawn(
+            distillation,
+            args=(world_size, distill_args),
+            nprocs=world_size,
+            join=True
+        )
 
 if __name__ == '__main__':
     main(sys.argv)  # main()을 직접 호출

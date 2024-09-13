@@ -101,12 +101,3 @@ def custom_collate_fn(batch):
     c_embs = torch.stack(c_embs)
     class_labels = torch.tensor(class_labels)
     return imgs, ts, c_embs, class_labels, indices
-
-def setup(rank, world_size):
-    # DDP 초기화
-    dist.init_process_group("gloo", rank=rank, world_size=world_size)
-    torch.manual_seed(0)
-
-def cleanup():
-    # DDP 종료
-    dist.destroy_process_group()
