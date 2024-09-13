@@ -79,7 +79,7 @@ def get_parser():
     parser.add_argument("--sample_step", type=int, default=10000, help='frequency of sampling')
     
     # WandB 관련 FLAGS 추가
-    parser.add_argument("--wandb_project", type=str, default='distill_caching_ddpm', help='WandB project name')
+    parser.add_argument("--wandb_project", type=str, default='distill_caching_ldm', help='WandB project name')
     parser.add_argument("--wandb_run_name", type=str, default=None, help='WandB run name')
     parser.add_argument("--wandb_notes", type=str, default='', help='Notes for the WandB run')
     
@@ -91,6 +91,9 @@ def get_parser():
     parser.add_argument("--fid_cache", type=str, default='./stats/cifar10.train.npz', help='FID cache')
     
     # Caching
+    parser.add_argument("--only_pre_caching", action='store_true', help='only precaching')
+    
+    
     parser.add_argument("--cache_n", type=int, default=64, help='size of caching data per timestep')
     parser.add_argument("--caching_batch_size", type=int, default=256, help='batch size for pre-caching')
     parser.add_argument('--cachedir', type=str, default='./cache', help='log directory')
@@ -114,7 +117,122 @@ def get_parser():
 
     
     return parser
+def pre_caching(args, gpu_num, gpu_no):
 
+    #gpu_monitor = GPUMonitor(monitoring_int
+    
+ 
+    #gpu_monitor.start("model_load_start!!")
+
+    T_model = get_model_teacher()
+    T_model = T_model.cuda(gpu_no)
+
+    T_device = T_model.device
+
+    T_sampler = DDIMSampler(T_model)
+    #print_gpu_memory_usage('models to sampler')
+    
+    T_sampler.make_schedule(ddim_num_steps = args.DDIM_num_steps, ddim_eta= 1, verbose=False)
+
+    ############################################ precacheing ##################################################
+    cache_size = args.cache_n*args.T
+    
+    img_cache = torch.randn(cache_size, T_model.channels, T_model.image_size, T_model.image_size).to(T_device)
+    t_cache = torch.ones(cache_size, dtype=torch.long, device=T_device)*(args.T-1)
+    
+    selected_tensor  = torch.tensor(
+        [862, 43, 335, 146, 494, 491, 587, 588, 187, 961, 78, 205, 297, 214, 163, 788, 980, 507, 916, 112, 512, 589, 771, 27, 269, 386, 336, 280, 362, 510, 850, 661, 731, 613, 945, 704, 86, 160, 372, 910, 159, 493, 623, 73, 128, 234, 717, 710, 887, 423, 546, 148, 558, 358, 463, 224, 987, 960, 444, 965, 363, 854, 492, 87, 672, 870, 217, 292, 303, 508, 188, 296, 642, 349, 154, 690, 298, 670, 964, 341, 873, 236, 35, 28, 890, 698, 902, 457, 621, 629, 371, 114, 610, 186, 718, 815, 944, 832, 869, 919, 441, 394, 625, 993, 401, 650, 55, 825, 272, 233, 738, 483, 473, 8, 220, 547, 684, 533, 132, 646, 455, 895, 52, 400, 593, 943, 848, 380, 175, 951, 195, 404, 856, 464, 123, 10, 433, 283, 366, 122, 307, 460, 616, 585, 407, 785, 835, 712, 912, 397, 440, 901, 600, 732, 140, 499, 864, 653, 584, 844, 874, 420, 147, 574, 24, 183, 243, 379, 338, 699, 94, 79, 254, 458, 430, 350, 388, 711, 639, 415, 299, 412, 743, 340, 967, 17, 992, 480, 858, 393, 918, 193, 334, 324, 575, 130, 950, 759, 820, 244, 652, 171, 18, 576, 15, 581, 93, 290, 847, 505, 922, 883, 470, 293, 777, 696, 215, 322, 291, 540, 416, 40, 956, 488, 780, 184, 453, 792, 127, 200, 602, 378, 344, 273, 255, 935, 763, 714, 529, 700, 226, 76, 502, 566, 165, 106, 867, 811, 376, 802, 678, 267, 276, 767, 881, 248, 26, 567, 995, 143, 709, 124, 927, 431, 270, 29, 966, 926, 168, 769, 149, 786, 761, 14, 22, 474, 981, 257, 676, 662, 96, 872, 679, 177, 413, 928, 314, 185, 120, 687, 395, 599, 346, 737, 352, 638, 157, 716, 974, 783, 467, 697, 559, 181, 797, 111, 144, 389, 834, 715, 894, 70, 206, 666, 0, 190, 520, 142, 259, 429, 948, 729, 841, 830, 764, 232, 150, 446, 80, 782, 225, 391, 477, 720, 295, 319, 803, 182, 989, 831, 800, 166, 506, 563, 721, 135, 305, 904, 145, 427, 72, 178, 947, 975, 33, 706, 997, 60, 828, 829, 45, 432, 482, 98, 392, 846, 968, 381, 577, 57, 240, 179, 484, 167, 282, 969, 542, 768, 930, 65, 239, 359, 107, 619, 218, 824, 503, 733, 515, 958, 469, 288, 606, 439, 622, 618, 419, 971, 294, 263, 504, 247, 744, 651, 310, 806, 339, 434, 633, 204, 659, 702, 351, 85, 81, 673, 449, 591, 537, 572, 668, 227, 580, 655, 962, 724, 937, 766, 742, 194, 285, 435, 897, 462, 708, 776, 693, 192, 582, 843, 597, 437, 513, 357, 365, 398, 713, 990, 523, 946, 837, 840, 564, 608, 855, 522, 719, 849, 603, 853, 691, 550, 37, 809, 778, 89, 321, 548, 309, 102, 41, 745, 399, 631, 7, 812, 421, 554, 119, 472, 438, 32, 481, 685, 817, 490, 723, 12, 570, 9, 568, 387, 164, 211, 6, 46, 448, 695, 242, 521, 978, 814, 875, 607, 634, 931, 884, 614, 320, 251, 77, 237, 118, 810, 617, 61, 311, 703, 963, 772, 972, 878, 571, 794, 868, 67, 774, 674, 976, 955, 49, 842, 117, 216, 932, 632, 134, 109, 994, 308, 747, 245, 517, 991, 648, 249, 643, 628, 590, 90, 30, 279, 345, 770, 544, 795, 705, 126, 913, 936, 636, 985, 219, 497, 751, 383, 410, 20, 63, 424, 138, 230, 261, 235, 649, 13, 1, 929, 228, 906, 38, 560, 598, 436, 798, 375, 921, 396, 5, 354, 640, 83, 3, 624, 511, 725, 630, 826, 333, 425, 361, 411, 626, 773, 471, 556, 728, 781, 161, 278, 790, 601, 450, 384, 996, 317, 565, 489, 804, 755, 641, 4, 277, 405, 539, 819, 115, 892, 113, 551, 734, 527, 924, 325, 451, 957, 367, 342, 323, 973, 289, 356, 327, 23, 545, 941, 36, 534, 784, 11, 977, 671, 637, 536, 905, 821, 669, 369, 101, 748, 907, 370, 212, 108, 579, 920, 595, 377, 31, 390, 409, 137, 189, 2, 222, 983, 667, 557, 385, 201, 970, 586, 692, 287, 866, 796, 58, 238, 726, 984, 445, 258, 75, 92, 355, 665, 153, 300, 162, 675, 596, 208, 903, 500, 466, 442, 286, 838, 328, 54, 531, 34, 456, 877, 689, 97, 552, 891, 760, 543, 199, 418, 660, 459, 100, 19, 514, 274, 246, 681, 647, 253, 805, 645, 900, 765, 938, 752, 50, 663, 151, 683, 526, 461, 741, 917, 152, 88, 301, 68, 125, 203, 498, 275, 822, 934, 654, 56, 155, 110, 735, 131, 74, 156, 262, 443, 207, 871, 525, 818, 306, 562, 173, 454, 485, 739, 382, 677, 364, 501, 942, 402, 749, 914, 172, 813, 176, 865, 573, 753, 592, 827, 62, 48, 347, 284, 852, 82, 730, 816, 71, 518, 909, 213, 953, 21, 688, 202, 360, 882, 141, 69, 105, 898, 104, 611, 315, 403, 999, 561, 374, 694, 876, 252, 496, 754, 158, 84, 808, 982, 532, 281, 42, 264, 348, 896, 174, 373, 879, 845, 911, 406, 198, 422, 583, 59, 535, 680, 627, 923, 316, 51, 265, 620, 417, 549, 353, 727, 304, 495, 250, 475, 241, 538, 312, 682, 66, 95, 658, 426, 266, 479, 578, 889, 368, 476, 988, 801, 740, 886, 807, 787, 414, 197, 940, 210, 779, 452, 833, 701, 408, 318, 337, 209, 775, 686, 635, 231, 139, 260, 722, 664, 313, 541, 91, 756, 519, 343, 823, 857, 791, 530, 986, 949, 750, 859, 39, 615, 915, 487, 191, 899, 998, 326, 129, 121, 330, 569, 44, 863, 516, 885, 53, 553, 736, 136, 605, 16, 99, 594, 762, 302, 952, 836, 758, 486, 103, 880, 644, 746], device=T_device)
+    class_cache = selected_tensor[torch.randint(0, len(selected_tensor), (cache_size,), device=T_device)]
+
+    c_emb_cache = torch.randn(cache_size, 1, 512).to(T_device)
+
+    # 10%의 인덱스를 무작위로 선택하여 1000으로 설정
+    num_to_replace = int(cache_size * 0.1)  # 전체 크기의 10%
+    indices = torch.randperm(cache_size)[:num_to_replace]  # 랜덤으로 인덱스 선택
+    class_cache[indices] = 1000
+    
+    with torch.no_grad():
+        indices = []
+        
+        for i in range(1,int(args.T/2)):
+            # 0부터 i*n까지의 값
+            indices.extend(range(i * args.cache_n))
+            
+            # (1000-i)*n부터 500*n까지의 값
+            indices.extend(range((1000 - i) * args.cache_n-1, 500 * args.cache_n-1, -1))
+            
+        for i in range(int(args.T/2)):
+            indices.extend(range(500 * args.cache_n))
+        
+        for batch_start in trange(0, cache_size, args.caching_batch_size, desc="Pre-class_caching"):
+            batch_end = min(batch_start + args.caching_batch_size, cache_size)  # 인덱스 범위를 벗어나지 않도록 처리
+            class_batch = class_cache[batch_start:batch_end]
+            
+            c = T_model.get_learned_conditioning(
+                {T_model.cond_stage_key: class_batch}
+            )
+            
+            c_emb_cache[batch_start:batch_end] = c
+            
+            
+        # Batch size만큼의 인덱스를 뽑아오는 과정
+        for batch_start in trange(0, len(indices), args.caching_batch_size, desc="Pre-caching"):
+            batch_end = min(batch_start + args.caching_batch_size, len(indices))  # 인덱스 범위를 벗어나지 않도록 처리
+            batch_indices = indices[batch_start:batch_end]  # Batch size만큼 인덱스 선택
+
+            # 인덱스를 이용해 배치 선택
+            img_batch = img_cache[batch_indices]
+            t_batch = t_cache[batch_indices]
+            c = c_emb_cache[batch_indices]
+            
+
+            x_prev, pred_x0,_ = T_sampler.cache_step(img_batch, c, t_batch, t_batch,
+                                                    use_original_steps=True,
+                                                    unconditional_guidance_scale=args.cfg_scale)
+
+            # 결과를 저장
+            img_cache[batch_indices] = x_prev
+            t_cache[batch_indices] -= 1
+
+            if batch_start % 100 == 0:  # 예를 들어, 100 스텝마다 시각화
+                visualize_t_cache_distribution(t_cache, args.cache_n)
+                
+        visualize_t_cache_distribution(t_cache, args.cache_n)
+        
+        save_dir = f"./{args.cachedir}/{args.cache_n}"
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        
+        # Save img_cache, t_cache, and class_cache as .pt files
+        torch.save(img_cache, f"{save_dir}/img_cache_{args.cache_n}_{args.seed}.pt")
+        torch.save(t_cache, f"{save_dir}/t_cache_{args.cache_n}_{args.seed}.pt")
+        torch.save(class_cache, f"{save_dir}/class_cache_{args.cache_n}_{args.seed}.pt")
+        torch.save(c_emb_cache, f"{save_dir}/c_emb_cache_{args.cache_n}_{args.seed}.pt")
+        
+        slice1 = img_cache[0:4]  # 첫 번째 슬라이스: 0부터 args.cache_n
+        slice2 = img_cache[args.cache_n*200:args.cache_n*200+4]  # 두 번째 슬라이스: args.cache_n*200부터 args.cache_n*201
+        slice3 = img_cache[args.cache_n*400:args.cache_n*400+4]  # 세 번째 슬라이스: args.cache_n*400부터 args.cache_n*401
+        slice4 = img_cache[args.cache_n*600:args.cache_n*600+4]  # 네 번째 슬라이스: args.cache_n*600부터 args.cache_n*601
+
+        # 슬라이스들을 합치기
+        img_to_save = torch.cat((slice1, slice2, slice3, slice4), dim=0)
+        img = T_model.decode_first_stage(img_to_save)        
+        grid_T = torch.clamp((img + 1.0) / 2.0, min=0.0, max=1.0)
+        grid_T = make_grid(grid_T, nrow=4)
+        # 각각의 그리드를 이미지로 변환
+        grid_T = 255. * rearrange(grid_T, 'c h w -> h w c').cpu().numpy()
+        # 이미지로 저장 (T_model과 S_model의 결과)
+        output_image_T = Image.fromarray(grid_T.astype(np.uint8))
+        output_image_T_path = 'caching_image.png'
+        output_image_T.save(output_image_T_path)
+
+        # 저장 경로 설정
+        save_dir = f"./{args.cachedir}/{args.cache_n}/images"
+        os.makedirs(save_dir, exist_ok=True)
+
+
+    print(f"Pre-caching completed and saved to {args.cachedir}")
+    
 def distillation(args, gpu_num, gpu_no):
 
     #gpu_monitor = GPUMonitor(monitoring_interval=2)
@@ -166,7 +284,6 @@ def distillation(args, gpu_num, gpu_no):
     print(f"Teacher: Number of trainable parameters: {num_trainable_params_teacher}")
     
     #gpu_monitor.start("optimizer_load_start!!")
-
     optimizer = torch.optim.AdamW(
         trainable_params_student,
         lr=args.lr,
@@ -198,12 +315,16 @@ def distillation(args, gpu_num, gpu_no):
     if args.is_precache:
         ############################################ precacheing ##################################################
         cache_size = args.cache_n*args.T
-        
+    
         img_cache = torch.randn(cache_size, T_model.channels, T_model.image_size, T_model.image_size).to(T_device)
         t_cache = torch.ones(cache_size, dtype=torch.long, device=T_device)*(args.T-1)
-        class_cache = torch.randint(0, 950, (cache_size,), device=T_device)
+        
+        selected_tensor  = torch.tensor(
+            [862, 43, 335, 146, 494, 491, 587, 588, 187, 961, 78, 205, 297, 214, 163, 788, 980, 507, 916, 112, 512, 589, 771, 27, 269, 386, 336, 280, 362, 510, 850, 661, 731, 613, 945, 704, 86, 160, 372, 910, 159, 493, 623, 73, 128, 234, 717, 710, 887, 423, 546, 148, 558, 358, 463, 224, 987, 960, 444, 965, 363, 854, 492, 87, 672, 870, 217, 292, 303, 508, 188, 296, 642, 349, 154, 690, 298, 670, 964, 341, 873, 236, 35, 28, 890, 698, 902, 457, 621, 629, 371, 114, 610, 186, 718, 815, 944, 832, 869, 919, 441, 394, 625, 993, 401, 650, 55, 825, 272, 233, 738, 483, 473, 8, 220, 547, 684, 533, 132, 646, 455, 895, 52, 400, 593, 943, 848, 380, 175, 951, 195, 404, 856, 464, 123, 10, 433, 283, 366, 122, 307, 460, 616, 585, 407, 785, 835, 712, 912, 397, 440, 901, 600, 732, 140, 499, 864, 653, 584, 844, 874, 420, 147, 574, 24, 183, 243, 379, 338, 699, 94, 79, 254, 458, 430, 350, 388, 711, 639, 415, 299, 412, 743, 340, 967, 17, 992, 480, 858, 393, 918, 193, 334, 324, 575, 130, 950, 759, 820, 244, 652, 171, 18, 576, 15, 581, 93, 290, 847, 505, 922, 883, 470, 293, 777, 696, 215, 322, 291, 540, 416, 40, 956, 488, 780, 184, 453, 792, 127, 200, 602, 378, 344, 273, 255, 935, 763, 714, 529, 700, 226, 76, 502, 566, 165, 106, 867, 811, 376, 802, 678, 267, 276, 767, 881, 248, 26, 567, 995, 143, 709, 124, 927, 431, 270, 29, 966, 926, 168, 769, 149, 786, 761, 14, 22, 474, 981, 257, 676, 662, 96, 872, 679, 177, 413, 928, 314, 185, 120, 687, 395, 599, 346, 737, 352, 638, 157, 716, 974, 783, 467, 697, 559, 181, 797, 111, 144, 389, 834, 715, 894, 70, 206, 666, 0, 190, 520, 142, 259, 429, 948, 729, 841, 830, 764, 232, 150, 446, 80, 782, 225, 391, 477, 720, 295, 319, 803, 182, 989, 831, 800, 166, 506, 563, 721, 135, 305, 904, 145, 427, 72, 178, 947, 975, 33, 706, 997, 60, 828, 829, 45, 432, 482, 98, 392, 846, 968, 381, 577, 57, 240, 179, 484, 167, 282, 969, 542, 768, 930, 65, 239, 359, 107, 619, 218, 824, 503, 733, 515, 958, 469, 288, 606, 439, 622, 618, 419, 971, 294, 263, 504, 247, 744, 651, 310, 806, 339, 434, 633, 204, 659, 702, 351, 85, 81, 673, 449, 591, 537, 572, 668, 227, 580, 655, 962, 724, 937, 766, 742, 194, 285, 435, 897, 462, 708, 776, 693, 192, 582, 843, 597, 437, 513, 357, 365, 398, 713, 990, 523, 946, 837, 840, 564, 608, 855, 522, 719, 849, 603, 853, 691, 550, 37, 809, 778, 89, 321, 548, 309, 102, 41, 745, 399, 631, 7, 812, 421, 554, 119, 472, 438, 32, 481, 685, 817, 490, 723, 12, 570, 9, 568, 387, 164, 211, 6, 46, 448, 695, 242, 521, 978, 814, 875, 607, 634, 931, 884, 614, 320, 251, 77, 237, 118, 810, 617, 61, 311, 703, 963, 772, 972, 878, 571, 794, 868, 67, 774, 674, 976, 955, 49, 842, 117, 216, 932, 632, 134, 109, 994, 308, 747, 245, 517, 991, 648, 249, 643, 628, 590, 90, 30, 279, 345, 770, 544, 795, 705, 126, 913, 936, 636, 985, 219, 497, 751, 383, 410, 20, 63, 424, 138, 230, 261, 235, 649, 13, 1, 929, 228, 906, 38, 560, 598, 436, 798, 375, 921, 396, 5, 354, 640, 83, 3, 624, 511, 725, 630, 826, 333, 425, 361, 411, 626, 773, 471, 556, 728, 781, 161, 278, 790, 601, 450, 384, 996, 317, 565, 489, 804, 755, 641, 4, 277, 405, 539, 819, 115, 892, 113, 551, 734, 527, 924, 325, 451, 957, 367, 342, 323, 973, 289, 356, 327, 23, 545, 941, 36, 534, 784, 11, 977, 671, 637, 536, 905, 821, 669, 369, 101, 748, 907, 370, 212, 108, 579, 920, 595, 377, 31, 390, 409, 137, 189, 2, 222, 983, 667, 557, 385, 201, 970, 586, 692, 287, 866, 796, 58, 238, 726, 984, 445, 258, 75, 92, 355, 665, 153, 300, 162, 675, 596, 208, 903, 500, 466, 442, 286, 838, 328, 54, 531, 34, 456, 877, 689, 97, 552, 891, 760, 543, 199, 418, 660, 459, 100, 19, 514, 274, 246, 681, 647, 253, 805, 645, 900, 765, 938, 752, 50, 663, 151, 683, 526, 461, 741, 917, 152, 88, 301, 68, 125, 203, 498, 275, 822, 934, 654, 56, 155, 110, 735, 131, 74, 156, 262, 443, 207, 871, 525, 818, 306, 562, 173, 454, 485, 739, 382, 677, 364, 501, 942, 402, 749, 914, 172, 813, 176, 865, 573, 753, 592, 827, 62, 48, 347, 284, 852, 82, 730, 816, 71, 518, 909, 213, 953, 21, 688, 202, 360, 882, 141, 69, 105, 898, 104, 611, 315, 403, 999, 561, 374, 694, 876, 252, 496, 754, 158, 84, 808, 982, 532, 281, 42, 264, 348, 896, 174, 373, 879, 845, 911, 406, 198, 422, 583, 59, 535, 680, 627, 923, 316, 51, 265, 620, 417, 549, 353, 727, 304, 495, 250, 475, 241, 538, 312, 682, 66, 95, 658, 426, 266, 479, 578, 889, 368, 476, 988, 801, 740, 886, 807, 787, 414, 197, 940, 210, 779, 452, 833, 701, 408, 318, 337, 209, 775, 686, 635, 231, 139, 260, 722, 664, 313, 541, 91, 756, 519, 343, 823, 857, 791, 530, 986, 949, 750, 859, 39, 615, 915, 487, 191, 899, 998, 326, 129, 121, 330, 569, 44, 863, 516, 885, 53, 553, 736, 136, 605, 16, 99, 594, 762, 302, 952, 836, 758, 486, 103, 880, 644, 746], device=T_device)
+        class_cache = selected_tensor[torch.randint(0, len(selected_tensor), (cache_size,), device=T_device)]
+
         c_emb_cache = torch.randn(cache_size, 1, 512).to(T_device)
-    
+
         # 10%의 인덱스를 무작위로 선택하여 1000으로 설정
         num_to_replace = int(cache_size * 0.1)  # 전체 크기의 10%
         indices = torch.randperm(cache_size)[:num_to_replace]  # 랜덤으로 인덱스 선택
@@ -327,9 +448,9 @@ def distillation(args, gpu_num, gpu_no):
             torch.save(c_emb_cache, f"{save_dir}/c_emb_cache_{args.cache_n}.pt")
             
             slice1 = img_cache[0:4]  # 첫 번째 슬라이스: 0부터 args.cache_n
-            slice2 = img_cache[args.cache_n*200:args.cache_n*200+4]  # 두 번째 슬라이스: args.cache_n*200부터 args.cache_n*201
-            slice3 = img_cache[args.cache_n*400:args.cache_n*400+4]  # 세 번째 슬라이스: args.cache_n*400부터 args.cache_n*401
-            slice4 = img_cache[args.cache_n*600:args.cache_n*600+4]  # 네 번째 슬라이스: args.cache_n*600부터 args.cache_n*601
+            slice2 = img_cache[args.cache_n*200:args.cache_n*200+4] 
+            slice3 = img_cache[args.cache_n*400:args.cache_n*400+4]  
+            slice4 = img_cache[args.cache_n*600:args.cache_n*600+4]  
 
             # 슬라이스들을 합치기
             img_to_save = torch.cat((slice1, slice2, slice3, slice4), dim=0)
@@ -549,7 +670,12 @@ def main(argv):
     gpu_no = distill_args.gpu_no
     # 전체 GPU 개수 가져오기
     gpu_num = torch.cuda.device_count()
-    distillation(distill_args, gpu_num, gpu_no)
+    
+    if distill_args.only_pre_caching:
+        pre_caching(distill_args, gpu_num, gpu_no)
+        
+    else:
+        distillation(distill_args, gpu_num, gpu_no)
 
 if __name__ == '__main__':
     main(sys.argv)  # main()을 직접 호출
