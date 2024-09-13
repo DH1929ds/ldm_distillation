@@ -462,7 +462,7 @@ def distillation(args, gpu_num, gpu_no):
             ### cache update ###
             img_cache[indices] = x_prev
             t_cache[indices] -= 1
-            if step%10000 == 0:
+            if step%1000 == 0:
                 visualize_t_cache_distribution(t_cache, args.cache_n)
             # num_999 = torch.sum(t_cache == (args.T - 1)).item()
 
