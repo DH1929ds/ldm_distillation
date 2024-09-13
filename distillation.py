@@ -275,7 +275,7 @@ def distillation(args, gpu_num, gpu_no):
                 indices.extend(range(i * args.cache_n))
                 
                 # (1000-i)*n부터 500*n까지의 값
-                indices.extend(range((1000 - i) * args.cache_n, 500 * args.cache_n, -1))
+                indices.extend(range((1000 - i) * args.cache_n-1, 500 * args.cache_n-1, -1))
                 
             for i in range(int(args.T/2)):
                 indices.extend(range(500 * args.cache_n))
@@ -312,7 +312,9 @@ def distillation(args, gpu_num, gpu_no):
 
                 if batch_start % 100 == 0:  # 예를 들어, 100 스텝마다 시각화
                     visualize_t_cache_distribution(t_cache, args.cache_n)
-
+                    
+            visualize_t_cache_distribution(t_cache, args.cache_n)
+            
             save_dir = f"./{args.cachedir}/{args.cache_n}"
             if not os.path.exists(save_dir):
                 os.makedirs(save_dir)
@@ -504,17 +506,17 @@ def distillation(args, gpu_num, gpu_no):
             pbar.set_postfix(distill_loss='%.3f' % total_loss.item())
              
             ################### Sample and save student outputs############################
-            if args.sample_step > 0 and step % args.sample_step == 0:
+            if step>0 and args.sample_step > 0 and step % args.sample_step == 0:
                 sample_save_images(args.num_sample_class, args.n_sample_per_class, 
                                    args.sample_save_ddim_steps, args.ddim_eta, args.cfg_scale, 
                                    T_model, S_model, T_sampler, S_sampler, step)
                 
         
             ################### Save student model ################################
-            if args.save_step > 0 and step % args.save_step == 0:
+            if step>0 and args.save_step > 0 and step % args.save_step == 0:
                 save_checkpoint(S_model, lr_scheduler, optimizer, step, args.logdir)
             ################### Evaluate student model ##############################
-            if args.eval_step > 0 and step % args.eval_step == 0:# and step != 0:
+            if step>0 and args.eval_step > 0 and step % args.eval_step == 0:# and step != 0:
                 S_model.eval()
                 
                 fid_a, fid_b, fid_c = sample_and_cal_fid(model=S_model , device=device, num_images=args.num_images, ddim_eta = args.ddim_eta, cfg_scale = args.cfg_scale, DDIM_num_steps=args.DDIM_num_steps)
