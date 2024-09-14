@@ -274,12 +274,12 @@ def distillation(rank, world_size, args):
     print('trainable params S_model')
     
     T_sampler = DDIMSampler(T_model)
-    S_sampler = DDIMSampler(S_model)
+    S_sampler = DDIMSampler(S_model.module)
     print('sampler')
     T_sampler.make_schedule(ddim_num_steps = args.DDIM_num_steps, ddim_eta= 1, verbose=False)
     S_sampler.make_schedule(ddim_num_steps = args.DDIM_num_steps, ddim_eta= 1, verbose=False)
     print('sampler make schedule')
-    trainer = distillation_DDPM_trainer(T_model, S_model, T_sampler, S_sampler, args.distill_features)
+    trainer = distillation_DDPM_trainer(T_model, S_model.module, T_sampler, S_sampler, args.distill_features)
     print('trainer')
     
     optimizer = torch.optim.AdamW(
@@ -362,18 +362,18 @@ def distillation(rank, world_size, args):
                     S_model.eval()
                     sample_save_images(args.num_sample_class, args.n_sample_per_class, 
                                     args.sample_save_ddim_steps, args.DDPM_sampling, args.ddim_eta, args.cfg_scale, 
-                                    T_model, S_model, T_sampler, S_sampler, step)
+                                    T_model, S_model.module, T_sampler, S_sampler, step)
                     S_model.train()
             
                 ################### Save student model ################################
                 if step>0 and args.save_step > 0 and step % args.save_step == 0:
-                    save_checkpoint(S_model, optimizer, step, args.logdir)
+                    save_checkpoint(S_model.module, optimizer, step, args.logdir)
                     
                 ################### Evaluate student model ##############################
                 if step>0 and args.eval_step > 0 and step % args.eval_step == 0:# and step != 0:
                     S_model.eval()
                     
-                    fid_a, fid_b, fid_c = sample_and_cal_fid(model=S_model , device=device, num_images=args.num_images, ddim_eta = args.ddim_eta, cfg_scale = args.cfg_scale, DDIM_num_steps=args.DDIM_num_steps)
+                    fid_a, fid_b, fid_c = sample_and_cal_fid(model=S_model.module , device=device, num_images=args.num_images, ddim_eta = args.ddim_eta, cfg_scale = args.cfg_scale, DDIM_num_steps=args.DDIM_num_steps)
                     
                     S_model.train()
                     
