@@ -268,7 +268,7 @@ def distillation(rank, world_size, args):
     print('load S_model to device')
     T_model.eval()
     
-    initialize_params(S_model.model)  #initialize unet parameters
+    initialize_params(S_model)  #initialize unet parameters
     print('initialize S_model')
     
     trainable_params_student = list(filter(lambda p: p.requires_grad, S_model.parameters()))
