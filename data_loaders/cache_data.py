@@ -73,8 +73,12 @@ class Cache_Dataset(Dataset):
         return img, t, c_emb, class_label, idx  # 인덱스도 반환하여 이후 업데이트에 사용
       
     def update_data(self, indices, new_imgs):
-        self.img_cache[indices] = new_imgs
-        self.t_cache[indices] -= 1
+        # 이 부분을 고쳐서 `indices`를 정수 배열 형태로 바꿔 인덱싱
+        indices = indices.view(-1).long()  # ensure indices are a flat, long tensor
+        
+        # 인덱스가 맞지 않는 경우 torch.index_select로 인덱스를 처리
+        self.img_cache.index_copy_(0, indices, new_imgs)  # indices에 맞는 부분만 교체
+        self.t_cache.index_copy_(0, indices, self.t_cache[indices] - 1)
         
         # t_cache 값이 0 미만인 인덱스 처리
         negative_indices = (self.t_cache[indices] < 0).nonzero(as_tuple=True)[0]
@@ -85,13 +89,13 @@ class Cache_Dataset(Dataset):
 
         if num_zero_indices > 0:
             # 0인 인덱스를 T-1로 초기화
-            self.t_cache[zero_indices] = torch.ones(num_zero_indices, dtype=torch.long) * 999 
-            self.img_cache[zero_indices] = torch.randn(
+            self.t_cache.index_fill_(0, zero_indices, 999)
+            self.img_cache.index_copy_(0, zero_indices, torch.randn(
                 num_zero_indices, 
                 new_imgs.shape[1],  # channels
                 new_imgs.shape[2],  # height
-                new_imgs.shape[3]
-            )
+                new_imgs.shape[3]   # width
+            ))
 
 def custom_collate_fn(batch):
     # 배치 데이터를 분리하여 텐서로 변환
