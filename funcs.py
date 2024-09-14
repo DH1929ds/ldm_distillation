@@ -84,7 +84,6 @@ def initialize_params(model):
     target_model = model.model  # S_model의 .model 부분에 접근
     
     for name, param in target_model.named_parameters():
-        print('unet param', name)
         if param.requires_grad:
             if param.dim() > 1:  # Convolutional layers and Linear layers typically have more than 1 dimension
                 torch.nn.init.xavier_uniform_(param)
@@ -92,7 +91,6 @@ def initialize_params(model):
                 torch.nn.init.zeros_(param)
                 
     for name, param in model.named_parameters():
-        print('total param', name)
         if 'model' not in name:  # model 파라미터가 아닌 경우
             param.requires_grad = False
                     
