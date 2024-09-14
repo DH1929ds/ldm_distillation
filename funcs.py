@@ -50,8 +50,6 @@ def load_model_from_config(config, ckpt):
     m, u = model.load_state_dict(sd, strict=False)
     for param in model.parameters():
         param.requires_grad = False
-    model.cuda()
-    model.eval()
     return model
 
 

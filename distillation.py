@@ -39,9 +39,6 @@ from funcs import load_model_from_config, get_model_teacher, load_model_from_con
 from eval_funcs import sample_and_cal_fid
 from data_loaders.cache_data import load_cache, Cache_Dataset, custom_collate_fn
 
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-
-
 def get_parser():
     parser = argparse.ArgumentParser()
     
