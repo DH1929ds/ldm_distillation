@@ -231,7 +231,7 @@ def pre_caching(args):
 
     print(f"Pre-caching completed and saved to {args.cachedir}")
     
-def distillation(rank, world_size, args):
+def distillation(args):
 
     #gpu_monitor = GPUMonitor(monitoring_interval=2)
     rank = int(os.environ["RANK"])
