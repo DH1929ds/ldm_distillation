@@ -81,7 +81,7 @@ def get_model_student():
     return model
 
 def initialize_params(model):
-    target_model = model.model  # S_model의 .model 부분에 접근
+    target_model = model.model.diffusion_model  # S_model의 .model 부분에 접근
     
     for name, param in target_model.named_parameters():
         print('unet param', name)
