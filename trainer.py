@@ -30,21 +30,15 @@ class distillation_DDPM_trainer(nn.Module):
                                                                       unconditional_guidance_scale = cfg_scale,
                                                                       is_feature=self.distill_features)
 
-          
-            # Student model forward pass
-            x_t = x_t.to(self.S_model.device)
-            t = t.to(self.S_model.device)
-            c = c.to(self.S_model.device)
             
             #student_output, student_features = self.S_model.forward_features(x_t, t)
             S_output, S_features = self.S_model.apply_model(x_t, t, c, is_feature=self.distill_features)
-            T_output = T_output.to(self.S_model.device)
             
             output_loss = F.mse_loss(S_output, T_output, reduction='mean')
             
             feature_loss = 0
             for student_feature, teacher_feature in zip(S_features, T_features):
-                teacher_feature = teacher_feature.to(self.S_model.device)
+                teacher_feature = teacher_feature
                 feature_loss += F.mse_loss(student_feature, teacher_feature, reduction='mean')
                 
             total_loss = output_loss + loss_weight * feature_loss / len(S_features)
@@ -62,16 +56,9 @@ class distillation_DDPM_trainer(nn.Module):
                 )
                 #print_gpu_memory_usage("After Teacher sampler cache step")
 
-            # Student model forward pass
-            x_t = x_t.to(self.S_model.device)
-            t = t.to(self.S_model.device)
-            c = c.to(self.S_model.device)
-
             S_output = self.S_model.apply_model(x_t, t, c)
-            T_output = T_output.to(self.S_model.device)
-
             
-            output_loss = F.mse_loss(T_output.float(), S_output.float(), reduction='mean')
+            output_loss = F.mse_loss(T_output, S_output, reduction='mean')
             total_loss = output_loss
             
 

@@ -50,8 +50,6 @@ def load_model_from_config(config, ckpt):
     m, u = model.load_state_dict(sd, strict=False)
     for param in model.parameters():
         param.requires_grad = False
-    model.cuda()
-    model.eval()
     return model
 
 
@@ -101,11 +99,12 @@ def save_checkpoint(S_model, lr_scheduler, optimizer, step, logdir):
     torch.save(ckpt, save_path)
     print(f"Checkpoint saved at step {step} to {save_path}")
     
-def sample_save_images(num_sample_class, n_sample_per_class, steps, eta, cfg_scale, T_model, S_model, T_sampler, S_sampler, step):
+def sample_save_images(num_sample_class, n_sample_per_class, steps, DDPM_sampling, eta, cfg_scale, T_model, S_model, T_sampler, S_sampler, step):
     
     classes = random.sample(range(1000), num_sample_class)
     n_samples_per_class = n_sample_per_class
     ddim_steps = steps
+    ddim_use_original_steps = (steps==1000)
     ddim_eta = eta
     scale = cfg_scale # for unconditional guidance
     all_samples_T = list()  # T_model 샘플 저장
@@ -129,6 +128,7 @@ def sample_save_images(num_sample_class, n_sample_per_class, steps, eta, cfg_sca
                                                      batch_size=n_samples_per_class,
                                                      shape=[3, 64, 64],
                                                      verbose=False,
+                                                     ddim_use_original_steps=DDPM_sampling,
                                                      unconditional_guidance_scale=scale,
                                                      unconditional_conditioning=uc,
                                                      eta=ddim_eta)
