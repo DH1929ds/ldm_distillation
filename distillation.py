@@ -358,7 +358,7 @@ def distillation(args):
                     'distill_loss': total_loss.item() * args.gradient_accumulation_steps,
                     'output_loss': output_loss.item()
                         }, step=step)
-                pbar.set_postfix(distill_loss='%.3f' % total_loss.item()* args.gradient_accumulation_steps)
+                pbar.set_postfix(distill_loss='%.3f' % (total_loss.item()* args.gradient_accumulation_steps))
                 
                 ################### Sample and save student outputs############################
                 if step>0 and args.sample_step > 0 and step % args.sample_step == 0:

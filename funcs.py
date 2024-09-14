@@ -63,8 +63,6 @@ def load_model_from_config_without_ckpt(config):
     model = instantiate_from_config(config.model)
     for param in model.parameters():
         param.requires_grad = True
-    model.cuda()  # 모델을 CUDA로 이동 (필요한 경우)
-    model.eval()  # 평가 모드로 설정
     return model
 
 def get_model_student():
