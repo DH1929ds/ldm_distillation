@@ -254,6 +254,7 @@ def distillation(rank, world_size, args):
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     torch.manual_seed(0)
     
+    torch.cuda.set_device(rank)
     device = torch.device(f'cuda:{rank}')
 
     T_model = get_model_teacher()
@@ -289,7 +290,7 @@ def distillation(rank, world_size, args):
         # weight_decay=args.adam_weight_decay,
         # eps=args.adam_epsilon,
     )
-    print('optimizer')
+    print('set optimizer')
     # lr_scheduler = get_scheduler(
     #     args.lr_scheduler,
     #     optimizer=optimizer,
@@ -332,7 +333,7 @@ def distillation(rank, world_size, args):
             
             # Calculate distillation loss
             output_loss, total_loss, x_prev = trainer(x_t, c, t, args.cfg_scale, args.loss_weight)
-            total_loss = total_loss /args.gradient_accumulation_steps
+            total_loss = total_loss / args.gradient_accumulation_steps
             total_loss.backward()
             
             if (step + 1) % args.gradient_accumulation_steps == 0:
@@ -352,7 +353,7 @@ def distillation(rank, world_size, args):
                 
                 # Logging with WandB
                 wandb.log({
-                    'distill_loss': total_loss.item(),
+                    'distill_loss': total_loss.item() * args.gradient_accumulation_steps,
                     'output_loss': output_loss.item()
                         }, step=step)
                 pbar.set_postfix(distill_loss='%.3f' % total_loss.item())
