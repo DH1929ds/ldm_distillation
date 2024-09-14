@@ -231,11 +231,11 @@ def pre_caching(args):
 
     print(f"Pre-caching completed and saved to {args.cachedir}")
     
-def distillation(args):
+def distillation(rank, world_size, args):
 
-    #gpu_monitor = GPUMonitor(monitoring_interval=2)
-    rank = int(os.environ["RANK"])
-    world_size = int(os.environ["WORLD_SIZE"])
+    # #gpu_monitor = GPUMonitor(monitoring_interval=2)
+    # rank = int(os.environ["RANK"])
+    # world_size = int(os.environ["WORLD_SIZE"])
 
     # Initialize WandB
     if rank == 0:  # Only initialize WandB in one process (e.g., rank 0)
@@ -408,22 +408,22 @@ def main(argv):
         pre_caching(distill_args)
         
     else:
-        distillation(distill_args)
-        # # Set the world size to the number of available GPUs
-        # world_size = torch.cuda.device_count()
-        # print('world_size(gpu num): ', world_size)
-        # # Ensure we have multiple GPUs available
-        # if world_size < 1:
-        #     print("No GPUs available for DDP. Exiting...")
-        #     sys.exit(1)
+        # distillation(distill_args)
+        # Set the world size to the number of available GPUs
+        world_size = torch.cuda.device_count()
+        print('world_size(gpu num): ', world_size)
+        # Ensure we have multiple GPUs available
+        if world_size < 1:
+            print("No GPUs available for DDP. Exiting...")
+            sys.exit(1)
 
-        # # Spawn processes for DDP
-        # mp.spawn(
-        #     distillation,
-        #     args=(world_size, distill_args),
-        #     nprocs=world_size,
-        #     join=True
-        # )
+        # Spawn processes for DDP
+        mp.spawn(
+            distillation,
+            args=(world_size, distill_args),
+            nprocs=world_size,
+            join=True
+        )
 
 if __name__ == '__main__':
     main(sys.argv)  # main()을 직접 호출
