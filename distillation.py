@@ -260,9 +260,8 @@ def distillation(rank, world_size, args):
     S_model = get_model_student()
     T_model = T_model.to(device)
     S_model = S_model.to(device)
-    T_model = DDP(T_model, device_ids=[rank])
-    S_model = DDP(S_model, device_ids=[rank])
     T_model.eval()
+    S_model = DDP(S_model, device_ids=[rank])
     S_model.train()
     
     initialize_params(S_model)
