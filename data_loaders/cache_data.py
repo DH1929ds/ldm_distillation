@@ -102,7 +102,8 @@ class Cache_Dataset(Dataset):
                 num_zero_indices, 
                 new_imgs.shape[1],  # channels
                 new_imgs.shape[2],  # height
-                new_imgs.shape[3]   # width
+                new_imgs.shape[3],  # width
+                device=device 
             ))
 
 def custom_collate_fn(batch):
