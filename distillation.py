@@ -342,7 +342,7 @@ def distillation(rank, world_size, args):
             # optimizer.step()
             # lr_scheduler.step()
 
-            cache_dataset.update_data(indices.cpu(), x_prev.cpu())
+            cache_dataset.update_data(indices, x_prev)
             
             
             if rank == 0:
