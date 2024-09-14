@@ -76,6 +76,10 @@ class Cache_Dataset(Dataset):
         # 이 부분을 고쳐서 `indices`를 정수 배열 형태로 바꿔 인덱싱
         indices = indices.view(-1).long()  # ensure indices are a flat, long tensor
         
+        print('self.img_cache device:', self.img_cache.device)
+        print('indices device:', indices.device)
+        print('new_imgs device:', new_imgs.device)
+        
         # 인덱스가 맞지 않는 경우 torch.index_select로 인덱스를 처리
         self.img_cache.index_copy_(0, indices, new_imgs)  # indices에 맞는 부분만 교체
         self.t_cache.index_copy_(0, indices, self.t_cache[indices] - 1)
