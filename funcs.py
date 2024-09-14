@@ -44,7 +44,7 @@ def print_gpu_memory_usage(step_description):
 
 def load_model_from_config(config, ckpt):
     print(f"Loading model from {ckpt}")
-    pl_sd = torch.load(ckpt)  # , map_location="cpu")
+    pl_sd = torch.load(ckpt, map_location='cpu')  # , map_location="cpu")
     sd = pl_sd["state_dict"]
     model = instantiate_from_config(config.model)
     m, u = model.load_state_dict(sd, strict=False)
@@ -67,7 +67,7 @@ def load_model_from_config_without_ckpt(config):
 
 def load_model_from_config_with_ckpt(config, ckpt):
     print(f"Loading model from {ckpt}")
-    pl_sd = torch.load(ckpt)  # , map_location="cpu")
+    pl_sd = torch.load(ckpt, map_location='cpu')  # , map_location="cpu")
     sd = pl_sd["state_dict"]
     model = instantiate_from_config(config.model)
     m, u = model.load_state_dict(sd, strict=False)
