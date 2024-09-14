@@ -329,6 +329,7 @@ def distillation(rank, world_size, args):
             x_t = x_t.to(device)
             t = t.to(device)
             c = c.to(device)
+            indices = indices.to(device)
             
             # Calculate distillation loss
             output_loss, total_loss, x_prev = trainer(x_t, c, t, args.cfg_scale, args.loss_weight)
