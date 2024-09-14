@@ -76,6 +76,10 @@ class Cache_Dataset(Dataset):
         # 이 부분을 고쳐서 `indices`를 정수 배열 형태로 바꿔 인덱싱
         indices = indices.view(-1).long()  # ensure indices are a flat, long tensor
         
+        device = self.img_cache.device
+        indices = indices.to(device)
+        new_imgs = new_imgs.to(device)
+        
         print('self.img_cache device:', self.img_cache.device)
         print('indices device:', indices.device)
         print('new_imgs device:', new_imgs.device)
