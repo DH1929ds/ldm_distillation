@@ -43,7 +43,7 @@ def get_parser():
     parser = argparse.ArgumentParser()
     
     parser.add_argument("--seed", type=int, default=20240911, help="seed for seed_everything")
-    parser.add_argument('--gpu_no', type=int, default=0, help='GPU number to use for training')
+    parser.add_argument('--world_size', type=int, default=None, help='number of GPU to use for training')
 
     parser.add_argument("--trainable_modules", type=tuple, default=(None,), help="Tuple of trainable modules")
     parser.add_argument("--adam_beta1", type=float, default=0.9, help="Beta1 parameter for Adam optimizer")
@@ -101,16 +101,12 @@ def get_parser():
     #DDIM Sampling
     parser.add_argument("--DDPM_sampling", action="store_true", help="sampling using DDPM sampling")
     parser.add_argument("--DDIM_num_steps", type=int, default=50, help='number of DDIM samping steps')
-
     parser.add_argument("--num_sample_class", type=int, default=4, help='number of class for save and sampling')
     parser.add_argument("--n_sample_per_class", type=int, default=16, help='number of sample for per class in save_sample')
-
     parser.add_argument("--sample_save_ddim_steps", type=int, default=20, help='number of DDIM sampling steps')
     parser.add_argument("--ddim_eta", type=float, default=1.0, help='DDIM eta parameter for noise level')
     parser.add_argument("--cfg_scale", type=float, default=1, help='guidance scale for unconditional guidance, 1 or none = no guidance, 0 = uncond')
 
-    #Directory
-    # parser.add_argument('--logdir', type=str, default='./logs', help='log directory')
 
     return parser
 
@@ -410,10 +406,15 @@ def main(argv):
         pre_caching(distill_args)
         
     else:
-        # distillation(distill_args)
-        # Set the world size to the number of available GPUs
-        world_size = torch.cuda.device_count()
+        # world_size 설정
+        if distill_args.world_size is None:
+            # 선택하지 않은 경우, torch.cuda.device_count()를 사용
+            distill_args.world_size = torch.cuda.device_count()
+            
+        # world_size는 지정된 world_size와 device_count 중 더 작은 값으로 설정
+        world_size = min(torch.cuda.device_count(), distill_args.world_size)
         print('world_size(gpu num): ', world_size)
+        
         # Ensure we have multiple GPUs available
         if world_size < 1:
             print("No GPUs available for DDP. Exiting...")
