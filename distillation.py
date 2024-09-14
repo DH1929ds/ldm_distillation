@@ -407,7 +407,7 @@ def main(argv):
     else:
         # Set the world size to the number of available GPUs
         world_size = torch.cuda.device_count()
-
+        print('world_size(gpu num): ', world_size)
         # Ensure we have multiple GPUs available
         if world_size < 1:
             print("No GPUs available for DDP. Exiting...")
