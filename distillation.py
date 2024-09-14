@@ -301,7 +301,7 @@ def distillation(rank, world_size, args):
 
     img_cache, t_cache, c_emb_cache, class_cache = load_cache(args.cachedir) # 함수 추가
     print('load_cache')
-    if not img_cache or not t_cache or not c_emb_cache or not class_cache:
+    if img_cache.numel() == 0 or t_cache.numel() == 0 or c_emb_cache.numel() == 0 or class_cache.numel() == 0:
         print("The cache is empty. You need to generate the cache.")        
         dist.barrier()  # Synchronize before exit
         dist.destroy_process_group()
