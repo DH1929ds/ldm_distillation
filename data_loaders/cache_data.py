@@ -104,4 +104,5 @@ def custom_collate_fn(batch):
     ts = torch.tensor(ts)
     c_embs = torch.stack(c_embs)
     class_labels = torch.tensor(class_labels)
+    indices = torch.tensor(indices)
     return imgs, ts, c_embs, class_labels, indices
