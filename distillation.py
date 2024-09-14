@@ -255,26 +255,32 @@ def distillation(rank, world_size, args):
     torch.manual_seed(0)
     
     device = torch.device(f'cuda:{rank}')
-    
+
     T_model = get_model_teacher()
     S_model = get_model_student()
+    print('load model to CPU')
     T_model = T_model.to(device)
+    print('load T_model to device')
     S_model = S_model.to(device)
+    print('load S_model to device')
     T_model.eval()
     S_model = DDP(S_model, device_ids=[rank])
+    print('load S_model to DDP')
     S_model.train()
     
     initialize_params(S_model)
+    print('initialize S_model')
     trainable_params_student = list(filter(lambda p: p.requires_grad, S_model.parameters()))
-    
+    print('trainable params S_model')
     
     T_sampler = DDIMSampler(T_model)
     S_sampler = DDIMSampler(S_model)
+    print('sampler')
     T_sampler.make_schedule(ddim_num_steps = args.DDIM_num_steps, ddim_eta= 1, verbose=False)
     S_sampler.make_schedule(ddim_num_steps = args.DDIM_num_steps, ddim_eta= 1, verbose=False)
-     
+    print('sampler make schedule')
     trainer = distillation_DDPM_trainer(T_model, S_model, T_sampler, S_sampler, args.distill_features)
-    
+    print('trainer')
     
     optimizer = torch.optim.AdamW(
         trainable_params_student,
@@ -283,7 +289,7 @@ def distillation(rank, world_size, args):
         # weight_decay=args.adam_weight_decay,
         # eps=args.adam_epsilon,
     )
-
+    print('optimizer')
     # lr_scheduler = get_scheduler(
     #     args.lr_scheduler,
     #     optimizer=optimizer,
@@ -294,7 +300,7 @@ def distillation(rank, world_size, args):
 
 
     img_cache, t_cache, c_emb_cache, class_cache = load_cache(args.cachedir) # 함수 추가
-    
+    print('load_cache')
     if not img_cache or not t_cache or not c_emb_cache or not class_cache:
         print("The cache is empty. You need to generate the cache.")        
         dist.barrier()  # Synchronize before exit
