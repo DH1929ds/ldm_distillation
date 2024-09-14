@@ -65,18 +65,36 @@ def load_model_from_config_without_ckpt(config):
         param.requires_grad = True
     return model
 
+def load_model_from_config_with_ckpt(config, ckpt):
+    print(f"Loading model from {ckpt}")
+    pl_sd = torch.load(ckpt)  # , map_location="cpu")
+    sd = pl_sd["state_dict"]
+    model = instantiate_from_config(config.model)
+    m, u = model.load_state_dict(sd, strict=False)
+    for param in model.parameters():
+        param.requires_grad = True
+    return model
+
 def get_model_student():
     config = OmegaConf.load("configs/latent-diffusion/cin256-v2.yaml")
-    model = load_model_from_config_without_ckpt(config)
+    model = load_model_from_config_with_ckpt(config, "models/ldm/cin256-v2/model.ckpt")
     return model
 
 def initialize_params(model):
-        for name, param in model.named_parameters():
-            if param.requires_grad:
-                if param.dim() > 1:  # Convolutional layers and Linear layers typically have more than 1 dimension
-                    init.xavier_uniform_(param)
-                else:
-                    init.zeros_(param)
+    target_model = model.model  # S_model의 .model 부분에 접근
+    
+    for name, param in target_model.named_parameters():
+        print('unet param', name)
+        if param.requires_grad:
+            if param.dim() > 1:  # Convolutional layers and Linear layers typically have more than 1 dimension
+                torch.nn.init.xavier_uniform_(param)
+            else:
+                torch.nn.init.zeros_(param)
+                
+    for name, param in model.named_parameters():
+        print('total param', name)
+        if 'model' not in name:  # model 파라미터가 아닌 경우
+            param.requires_grad = False
                     
 def save_checkpoint(S_model, lr_scheduler, optimizer, step, logdir):
     ckpt = {

@@ -260,30 +260,32 @@ def distillation(rank, world_size, args):
     device = torch.device(f'cuda:{rank}')
 
     T_model = get_model_teacher()
-    S_model = get_model_student()
+    S_model = get_model_student()  #load with ckpt
     print('load model to CPU')
     T_model = T_model.to(device)
     print('load T_model to device')
     S_model = S_model.to(device)
     print('load S_model to device')
     T_model.eval()
-    S_model = DDP(S_model, device_ids=[rank])
-    print('load S_model to DDP')
-    S_model.train()
     
-    initialize_params(S_model)
+    initialize_params(S_model.model)  #initialize unet parameters
     print('initialize S_model')
+    
     trainable_params_student = list(filter(lambda p: p.requires_grad, S_model.parameters()))
     print('trainable params S_model')
     
     T_sampler = DDIMSampler(T_model)
-    S_sampler = DDIMSampler(S_model.module)
+    S_sampler = DDIMSampler(S_model)
     print('sampler')
     T_sampler.make_schedule(ddim_num_steps = args.DDIM_num_steps, ddim_eta= 1, verbose=False)
     S_sampler.make_schedule(ddim_num_steps = args.DDIM_num_steps, ddim_eta= 1, verbose=False)
     print('sampler make schedule')
-    trainer = distillation_DDPM_trainer(T_model, S_model.module, T_sampler, S_sampler, args.distill_features)
+    trainer = distillation_DDPM_trainer(T_model, S_model, T_sampler, S_sampler, args.distill_features)
     print('trainer')
+    
+    S_model = DDP(S_model, device_ids=[rank])
+    S_model.train()
+    print('load S_model to DDP')
     
     optimizer = torch.optim.AdamW(
         trainable_params_student,
