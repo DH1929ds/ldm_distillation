@@ -189,7 +189,10 @@ def sampling(model=None, output_folder = "output_samples", device="cuda", large_
 def sample_and_cal_fid(device, num_images=50000, model=None, output_dir="./output_samples/", ddim_eta=1.0, cfg_scale=1.0, DDIM_num_steps=25, specific_classes=None):
     
     start_time = time.time()
-   
+
+    if specific_classes is None:
+        specific_classes = list(range(0,999))
+        
     #print(len(specific_classes))
 
     
@@ -280,6 +283,9 @@ def sample_and_cal_fid(device, num_images=50000, model=None, output_dir="./outpu
     return fid_value_specific, fid_value_exclude, fid_value_all
 
 def main():
+
+    # test
+    
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     output_dir = "./output_samples/"
     

@@ -375,9 +375,12 @@ def distillation(rank, world_size, args):
                     
                 ################### Evaluate student model ##############################
                 if step>0 and args.eval_step > 0 and step/args.gradient_accumulation_steps % args.eval_step == 0:# and step != 0:
+                    
+                    specific_classes = list(selected_tensor.to(device))
+                    
                     S_model.eval()
                     
-                    fid_a, fid_b, fid_c = sample_and_cal_fid(model=S_model.module , device=device, num_images=args.num_images, ddim_eta = args.ddim_eta, cfg_scale = args.cfg_scale, DDIM_num_steps=args.DDIM_num_steps)
+                    fid_a, fid_b, fid_c = sample_and_cal_fid(model=S_model.module , device=device, num_images=args.num_images, ddim_eta = args.ddim_eta, cfg_scale = args.cfg_scale, DDIM_num_steps=args.DDIM_num_steps, specific_classes=specific_classes)
                     
                     S_model.train()
                     
@@ -388,6 +391,7 @@ def distillation(rank, world_size, args):
                     }
                     
                     print(metrics)
+                    
                     # Log metrics to wandb
                     wandb.log(metrics, step=int(step//args.gradient_accumulation_steps))
     # DDP 정리 및 WandB 로깅 종료
