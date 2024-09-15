@@ -113,8 +113,19 @@ def save_checkpoint(S_model, lr_scheduler, optimizer, step, logdir):
     torch.save(ckpt, save_path)
     print(f"Checkpoint saved at step {step} to {save_path}")
     
-def sample_save_images(num_sample_class, n_sample_per_class, steps, DDPM_sampling, eta, cfg_scale, T_model, S_model, T_sampler, S_sampler, step):
     
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    
+def sample_save_images(num_sample_class, n_sample_per_class, steps, DDPM_sampling, eta, cfg_scale, T_model, S_model, T_sampler, S_sampler, step, seed=None):
+    
+    if seed is not None:
+        set_seed(seed)  # 시드 고정
+        
     classes = random.sample(range(1000), num_sample_class)
     n_samples_per_class = n_sample_per_class
     ddim_steps = steps
