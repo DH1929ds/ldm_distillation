@@ -44,7 +44,9 @@ def get_parser():
     
     parser.add_argument("--seed", type=int, default=20240911, help="seed for seed_everything")
     parser.add_argument('--world_size', type=int, default=None, help='number of GPU to use for training')
-
+    parser.add_argument("--MASTER_PORT", type=str, default="12355", help="MASTER_PORT for DDP")
+    parser.add_argument("--MASTER_ADDR", type=str, default="127.0.0.1", help="MASTER_ADDR fof DDP")
+    
     parser.add_argument("--trainable_modules", type=tuple, default=(None,), help="Tuple of trainable modules")
     parser.add_argument("--adam_beta1", type=float, default=0.9, help="Beta1 parameter for Adam optimizer")
     parser.add_argument("--adam_beta2", type=float, default=0.999, help="Beta2 parameter for Adam optimizer")
@@ -87,7 +89,7 @@ def get_parser():
     
     # Evaluation
     parser.add_argument("--save_step", type=int, default=50000, help='frequency of saving checkpoints, 0 to disable during training')
-    parser.add_argument("--eval_step", type=int, default=100000, help='frequency of evaluating model, 0 to disable during training')
+    parser.add_argument("--eval_step", type=int, default=0, help='frequency of evaluating model, 0 to disable during training')
     parser.add_argument("--num_images", type=int, default=10000, help='the number of generated images for evaluation')
     parser.add_argument("--fid_use_torch", action='store_true', help='calculate IS and FID on gpu')
     parser.add_argument("--fid_cache", type=str, default='./stats/cifar10.train.npz', help='FID cache')
@@ -408,6 +410,9 @@ def main(argv):
         
     else:
         # world_size 설정
+        os.environ['MASTER_ADDR'] = distill_args.MASTER_ADDR
+        os.environ['MASTER_PORT'] = distill_args.MASTER_PORT
+
         if distill_args.world_size is None:
             # 선택하지 않은 경우, torch.cuda.device_count()를 사용
             distill_args.world_size = torch.cuda.device_count()
