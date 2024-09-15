@@ -243,7 +243,7 @@ def distillation(rank, world_size, args):
                 "learning_rate": args.lr,
                 "architecture": "UNet",
                 "dataset": "ldm caching",
-                "epochs": args.total_steps,
+                "steps": args.total_steps/args.gradient_accumulation_steps,
             }
         )
     
@@ -301,7 +301,8 @@ def distillation(rank, world_size, args):
 
 
     img_cache, t_cache, c_emb_cache, class_cache = load_cache(args.cachedir) # 함수 추가
-    print('load_cache')
+    print('load_cache, size:', img_cache.shape[0])
+    
     if img_cache.numel() == 0 or t_cache.numel() == 0 or c_emb_cache.numel() == 0 or class_cache.numel() == 0:
         print("The cache is empty. You need to generate the cache.")        
         dist.barrier()  # Synchronize before exit
@@ -315,7 +316,7 @@ def distillation(rank, world_size, args):
     dataloader = DataLoader(cache_dataset, batch_size=args.batch_size, collate_fn=custom_collate_fn, sampler=sampler)
     dataloader_cycle = cycle(dataloader)
     
-    with trange(args.total_steps, dynamic_ncols=True, disable=(rank != 0)) as pbar:
+    with trange(args.total_steps*args.gradient_accumulation_steps, dynamic_ncols=True, disable=(rank != 0)) as pbar:
         for step in pbar:
             # step이 epoch의 시작을 나타낼 때마다 sampler의 epoch을 업데이트
             if step % len(dataloader) == 0:
@@ -348,30 +349,30 @@ def distillation(rank, world_size, args):
             
             if rank == 0:
                 
-                if step%1000 == 0:
-                    visualize_t_cache_distribution(t_cache, args.cache_n)
+                # if step%1000 == 0:
+                #     visualize_t_cache_distribution(t_cache, args.cache_n)
                 
                 # Logging with WandB
                 wandb.log({
                     'distill_loss': total_loss.item() * args.gradient_accumulation_steps,
                     'output_loss': output_loss.item()
-                        }, step=step)
+                        }, step=step/args.gradient_accumulation_steps)
                 pbar.set_postfix(distill_loss='%.3f' % (total_loss.item()* args.gradient_accumulation_steps))
                 
                 ################### Sample and save student outputs############################
-                if step>0 and args.sample_step > 0 and step % args.sample_step == 0:
+                if step>0 and args.sample_step > 0 and step/args.gradient_accumulation_steps % args.sample_step == 0:
                     S_model.eval()
                     sample_save_images(args.num_sample_class, args.n_sample_per_class, 
                                     args.sample_save_ddim_steps, args.DDPM_sampling, args.ddim_eta, args.cfg_scale, 
-                                    T_model, S_model.module, T_sampler, S_sampler, step)
+                                    T_model, S_model.module, T_sampler, S_sampler, step/args.gradient_accumulation_steps)
                     S_model.train()
             
                 ################### Save student model ################################
-                if step>0 and args.save_step > 0 and step % args.save_step == 0:
-                    save_checkpoint(S_model.module, optimizer, step, args.logdir)
+                if step>0 and args.save_step > 0 and step/args.gradient_accumulation_steps % args.save_step == 0:
+                    save_checkpoint(S_model.module, optimizer, step/args.gradient_accumulation_steps, args.logdir)
                     
                 ################### Evaluate student model ##############################
-                if step>0 and args.eval_step > 0 and step % args.eval_step == 0:# and step != 0:
+                if step>0 and args.eval_step > 0 and step/args.gradient_accumulation_steps % args.eval_step == 0:# and step != 0:
                     S_model.eval()
                     
                     fid_a, fid_b, fid_c = sample_and_cal_fid(model=S_model.module , device=device, num_images=args.num_images, ddim_eta = args.ddim_eta, cfg_scale = args.cfg_scale, DDIM_num_steps=args.DDIM_num_steps)
@@ -386,7 +387,7 @@ def distillation(rank, world_size, args):
                     
                     print(metrics)
                     # Log metrics to wandb
-                    wandb.log(metrics, step=step)
+                    wandb.log(metrics, step=step/args.gradient_accumulation_steps)
     # DDP 정리 및 WandB 로깅 종료
     dist.barrier()
     dist.destroy_process_group()
