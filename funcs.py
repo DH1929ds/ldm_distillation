@@ -118,7 +118,6 @@ def sample_save_images(num_sample_class, n_sample_per_class, steps, DDPM_samplin
     classes = random.sample(range(1000), num_sample_class)
     n_samples_per_class = n_sample_per_class
     ddim_steps = steps
-    ddim_use_original_steps = (steps==1000)
     ddim_eta = eta
     scale = cfg_scale # for unconditional guidance
     all_samples_T = list()  # T_model 샘플 저장

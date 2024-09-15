@@ -245,7 +245,7 @@ def distillation(rank, world_size, args):
                 "learning_rate": args.lr,
                 "architecture": "UNet",
                 "dataset": "ldm caching",
-                "steps": args.total_steps/args.gradient_accumulation_steps,
+                "steps": int(args.total_steps//args.gradient_accumulation_steps),
             }
         )
     
@@ -353,25 +353,25 @@ def distillation(rank, world_size, args):
                 
                 # if step%1000 == 0:
                 #     visualize_t_cache_distribution(t_cache, args.cache_n)
-                
-                # Logging with WandB
-                wandb.log({
-                    'distill_loss': total_loss.item() * args.gradient_accumulation_steps,
-                    'output_loss': output_loss.item()
-                        }, step=step/args.gradient_accumulation_steps)
-                pbar.set_postfix(distill_loss='%.3f' % (total_loss.item()* args.gradient_accumulation_steps))
+                if step%args.gradient_accumulation_steps==0 :
+                    # Logging with WandB
+                    wandb.log({
+                        'distill_loss': total_loss.item() * args.gradient_accumulation_steps,
+                        'output_loss': output_loss.item()
+                            }, step=int(step//args.gradient_accumulation_steps))
+                    pbar.set_postfix(distill_loss='%.3f' % (total_loss.item()* args.gradient_accumulation_steps))
                 
                 ################### Sample and save student outputs############################
                 if step>0 and args.sample_step > 0 and step/args.gradient_accumulation_steps % args.sample_step == 0:
                     S_model.eval()
                     sample_save_images(args.num_sample_class, args.n_sample_per_class, 
                                     args.sample_save_ddim_steps, args.DDPM_sampling, args.ddim_eta, args.cfg_scale, 
-                                    T_model, S_model.module, T_sampler, S_sampler, step/args.gradient_accumulation_steps)
+                                    T_model, S_model.module, T_sampler, S_sampler, int(step/args.gradient_accumulation_steps))
                     S_model.train()
             
                 ################### Save student model ################################
                 if step>0 and args.save_step > 0 and step/args.gradient_accumulation_steps % args.save_step == 0:
-                    save_checkpoint(S_model.module, optimizer, step/args.gradient_accumulation_steps, args.logdir)
+                    save_checkpoint(S_model.module, optimizer, int(step/args.gradient_accumulation_steps), args.logdir)
                     
                 ################### Evaluate student model ##############################
                 if step>0 and args.eval_step > 0 and step/args.gradient_accumulation_steps % args.eval_step == 0:# and step != 0:
@@ -389,7 +389,7 @@ def distillation(rank, world_size, args):
                     
                     print(metrics)
                     # Log metrics to wandb
-                    wandb.log(metrics, step=step/args.gradient_accumulation_steps)
+                    wandb.log(metrics, step=int(step//args.gradient_accumulation_steps))
     # DDP 정리 및 WandB 로깅 종료
     dist.barrier()
     dist.destroy_process_group()
