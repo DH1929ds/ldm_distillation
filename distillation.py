@@ -299,7 +299,7 @@ def distillation(rank, world_size, args):
     #     num_warmup_steps=args.lr_warmup_steps * args.gradient_accumulation_steps,
     #     num_training_steps=args.total_steps
     # )
-    # scheduler = LambdaLR(optimizer, lr_lambda=scheduler.schedule)
+    scheduler = LambdaLR(optimizer, lr_lambda=lambda epoch: 1.0)
 
 
     img_cache, t_cache, c_emb_cache, class_cache = load_cache(args.cachedir) # 함수 추가
@@ -371,7 +371,7 @@ def distillation(rank, world_size, args):
             
                 ################### Save student model ################################
                 if step>0 and args.save_step > 0 and step/args.gradient_accumulation_steps % args.save_step == 0:
-                    save_checkpoint(S_model.module, optimizer, int(step//args.gradient_accumulation_steps), args.logdir)
+                    save_checkpoint(S_model.module, scheduler, optimizer, int(step//args.gradient_accumulation_steps), args.logdir)
                     
                 ################### Evaluate student model ##############################
                 if step>0 and args.eval_step > 0 and step/args.gradient_accumulation_steps % args.eval_step == 0:# and step != 0:
