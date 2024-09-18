@@ -95,9 +95,10 @@ def sampling_with_intermediates(batch_size=32):
     if torch.cuda.device_count() > 1:
         print(f"Using {torch.cuda.device_count()} GPUs.")
         model = nn.DataParallel(model)  # 모델을 여러 GPU로 분산
-    model.to(torch.device("cuda:0" if torch.cuda.is_available() else "cpu"))
-
-    sampler = DDIMSampler(model)
+        sampler = DDIMSampler(model.module)
+    else:
+        model.to(torch.device("cuda:0" if torch.cuda.is_available() else "cpu"))
+        sampler = DDIMSampler(model)
     
     classes = list(range(1001))  # Define classes to be sampled here
     n_samples_per_class = 6
