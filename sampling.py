@@ -95,6 +95,7 @@ def sampling_with_intermediates(batch_size=32):
     if torch.cuda.device_count() > 1:
         print(f"Using {torch.cuda.device_count()} GPUs.")
         model = nn.DataParallel(model)  # 모델을 여러 GPU로 분산
+        model.to(torch.device("cuda:0" if torch.cuda.is_available() else "cpu"))
         sampler = DDIMSampler(model.module)
     else:
         model.to(torch.device("cuda:0" if torch.cuda.is_available() else "cpu"))
@@ -126,10 +127,10 @@ def sampling_with_intermediates(batch_size=32):
 
                 # Create conditioning for a batch of classes
                 xc = torch.tensor([label for class_label in class_batch for label in [class_label] * n_samples_per_class])
-                c = model.module.get_learned_conditioning({model.module.cond_stage_key: xc.to(model.device)}) if hasattr(model, "module") else model.get_learned_conditioning({model.cond_stage_key: xc.to(model.device)})
+                c = model.module.get_learned_conditioning({model.module.cond_stage_key: xc.to(model.module.device)}) if hasattr(model, "module") else model.get_learned_conditioning({model.cond_stage_key: xc.to(model.module.device)})
 
                 # Create unconditional conditioning 'uc' for the current batch size
-                uc = model.module.get_learned_conditioning({model.module.cond_stage_key: torch.tensor(len(xc) * [1000]).to(model.device)}) if hasattr(model, "module") else model.get_learned_conditioning({model.cond_stage_key: torch.tensor(len(xc) * [1000]).to(model.device)})
+                uc = model.module.get_learned_conditioning({model.module.cond_stage_key: torch.tensor(len(xc) * [1000]).to(model.module.device)}) if hasattr(model, "module") else model.get_learned_conditioning({model.cond_stage_key: torch.tensor(len(xc) * [1000]).to(model.module.device)})
 
                 # Store condition vectors 'c'
                 condition_vectors.extend(c.cpu().numpy())  # Collecting condition vectors
