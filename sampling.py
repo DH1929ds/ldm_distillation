@@ -88,7 +88,7 @@ def sampling():
     output_image = Image.fromarray(grid.astype(np.uint8))
     output_image.save('output.png')  # 파일로 저장
 
-def sampling_with_intermediates(batch_size=10):
+def sampling_with_intermediates(batch_size=32):
     model = get_model()
 
     # 모델을 여러 GPU에 분산
@@ -100,7 +100,7 @@ def sampling_with_intermediates(batch_size=10):
     sampler = DDIMSampler(model)
     
     classes = list(range(1001))  # Define classes to be sampled here
-    n_samples_per_class = 8
+    n_samples_per_class = 6
     
     ddim_steps = 100
     ddim_eta = 1.0
