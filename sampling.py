@@ -266,7 +266,7 @@ def main(argv):
     # Spawn processes for DDP
     mp.spawn(
         sampling_with_intermediates,
-        args=(world_size),
+        args=(world_size,),
         nprocs=world_size,
         join=True
     )
