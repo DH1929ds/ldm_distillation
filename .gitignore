@@ -6,3 +6,4 @@ wandb/
 *.png
 logs/
 *.ipynb*
+*.npy
