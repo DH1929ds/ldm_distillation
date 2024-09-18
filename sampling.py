@@ -6,7 +6,9 @@ from einops import rearrange
 from torchvision.utils import make_grid
 
 import torch.nn as nn
-import os
+import torch.multiprocessing as mp
+import torch.distributed as dist
+import os, sys
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 import numpy as np
@@ -88,97 +90,6 @@ def sampling():
     output_image = Image.fromarray(grid.astype(np.uint8))
     output_image.save('output.png')  # 파일로 저장
 
-def sampling_with_intermediates(batch_size=32):
-    model = get_model()
-    
-    # 현재 사용할 수 있는 GPU가 있는지 확인
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # 모델을 여러 GPU에 분산
-    if torch.cuda.device_count() > 1:
-        print(f"Using {torch.cuda.device_count()} GPUs.")
-        model = nn.DataParallel(model, device_ids=list(range(torch.cuda.device_count())))  # 모델을 여러 GPU로 분산
-    model.to(device)  # 모델을 디바이스로 이동
-
-    sampler = DDIMSampler(model.module if hasattr(model, "module") else model)
-    
-    classes = list(range(1001))  # Define classes to be sampled here
-    n_samples_per_class = 6
-    
-    ddim_steps = 100
-    ddim_eta = 1.0
-    scale = 1  # for unconditional guidance 0: uncond, 1: no guidance cond
-    ddim_use_original_steps = True
-
-    # Dictionaries to store features and condition vectors
-    features_by_index = {}
-    labels_by_index = {}
-    condition_vectors = []  # To store condition vectors 'c'
-    condition_labels = []   # To store class labels for condition vectors 'c'
-
-    with torch.no_grad():
-        # DataParallel을 사용하는 경우와 사용하지 않는 경우 구분
-        ema_scope = model.module.ema_scope if hasattr(model, "module") else model.ema_scope
-        
-        with ema_scope():  # DataParallel일 경우 model.module을 사용
-            # Process classes in batches
-            for i in range(0, len(classes), batch_size):
-                class_batch = classes[i:i + batch_size]
-                print(f"Rendering {n_samples_per_class} examples for classes {class_batch} in {ddim_steps} steps and using s={scale:.2f}.")
-
-                # Create conditioning for a batch of classes
-                xc = torch.tensor([label for class_label in class_batch for label in [class_label] * n_samples_per_class])
-                xc = xc.to(device)  # 텐서를 디바이스로 이동
-                
-                c = model.module.get_learned_conditioning({model.module.cond_stage_key: xc}) if hasattr(model, "module") else model.get_learned_conditioning({model.cond_stage_key: xc})
-
-                # Create unconditional conditioning 'uc' for the current batch size
-                uc = model.module.get_learned_conditioning({model.module.cond_stage_key: torch.tensor(len(xc) * [1000]).to(device)}) if hasattr(model, "module") else model.get_learned_conditioning({model.cond_stage_key: torch.tensor(len(xc) * [1000]).to(device)})
-
-                # Store condition vectors 'c'
-                condition_vectors.extend(c.cpu().numpy())  # Collecting condition vectors
-                condition_labels.extend([class_label for class_label in class_batch for _ in range(n_samples_per_class)])  # Collecting corresponding class labels
-
-                samples_ddim, intermediates = sampler.sample_with_intermediates_features(
-                    S=ddim_steps,
-                    conditioning=c,
-                    batch_size=len(xc),
-                    shape=[3, 64, 64],
-                    log_every_t=100,
-                    verbose=False,
-                    ddim_use_original_steps=ddim_use_original_steps,
-                    unconditional_guidance_scale=scale,
-                    unconditional_conditioning=uc,
-                    eta=ddim_eta
-                )
-
-                # Extracting and saving features
-                features = intermediates['features']  # Assuming it's a list of length 10
-                for index, feature in enumerate(features):
-                    if index not in features_by_index:
-                        features_by_index[index] = []
-                        labels_by_index[index] = []
-
-                    features_by_index[index].extend([f.cpu().numpy() for f in feature])  # Append numpy array of each feature
-                    labels_by_index[index].extend([class_label for class_label in class_batch for _ in range(n_samples_per_class)])
-
-    # Save features and labels as numpy arrays for each index for later use
-    for index in features_by_index:
-        np.save(f'features_index_{index}.npy', np.array(features_by_index[index]))
-        np.save(f'labels_index_{index}.npy', np.array(labels_by_index[index]))
-
-    # Save condition vectors and labels
-    np.save('condition_vectors.npy', np.array(condition_vectors))
-    np.save('condition_labels.npy', np.array(condition_labels))
-
-    for index in range(len(intermediates['features'])):
-        tsne_visualization_by_index(index)
-    
-    # Perform t-SNE on condition vectors
-    tsne_visualization_conditions('condition_vectors.npy', 'condition_labels.npy')
-
-
-
 
 def tsne_visualization_by_index(index):
     # Define the folder path
@@ -240,16 +151,125 @@ def tsne_visualization_conditions(conditions_path, labels_path):
     plt.savefig(os.path.join(save_dir, 'tsne_conditions.png'))  # Save figure to file
     plt.close()  # Close the figure to free memory
 
+def setup_ddp(rank, world_size):
+    """DDP 초기화"""
+    dist.init_process_group(
+        backend='nccl',  # GPU 상에서 nccl 사용, CPU의 경우 gloo
+        init_method='env://',
+        world_size=world_size,
+        rank=rank
+    )
+
+def cleanup_ddp():
+    """DDP 종료"""
+    dist.destroy_process_group()
+
+def sampling_with_intermediates(rank, world_size, batch_size=32):
+    """각 rank에서 샘플링 및 DDP 설정"""
+    setup_ddp(rank, world_size)
+    
+    # 모델 정의 및 DDP로 감싸기
+    model = get_model()
+    device = torch.device(f"cuda:{rank}")
+    model.to(device)
+    model = nn.parallel.DistributedDataParallel(model, device_ids=[rank])
+
+    sampler = DDIMSampler(model.module if hasattr(model, "module") else model)
+    
+    classes = list(range(1001))  # Define classes to be sampled here
+    n_samples_per_class = 6
+    
+    ddim_steps = 100
+    ddim_eta = 1.0
+    scale = 1  # for unconditional guidance 0: uncond, 1: no guidance cond
+    ddim_use_original_steps = True
+
+    # Dictionaries to store features and condition vectors
+    features_by_index = {}
+    labels_by_index = {}
+    condition_vectors = []  # To store condition vectors 'c'
+    condition_labels = []   # To store class labels for condition vectors 'c'
+
+    with torch.no_grad():
+        ema_scope = model.module.ema_scope if hasattr(model, "module") else model.ema_scope
+
+        with ema_scope():
+            # 각 rank에서 할당받은 클래스만 처리
+            classes_per_rank = np.array_split(classes, world_size)[rank]
+
+            for i in range(0, len(classes_per_rank), batch_size):
+                class_batch = classes_per_rank[i:i + batch_size]
+                print(f"Rank {rank}: Rendering {n_samples_per_class} examples for classes {class_batch}.")
+
+                # Create conditioning for a batch of classes
+                xc = torch.tensor([label for class_label in class_batch for label in [class_label] * n_samples_per_class])
+                xc = xc.to(device)
+
+                c = model.module.get_learned_conditioning({model.module.cond_stage_key: xc}) if hasattr(model, "module") else model.get_learned_conditioning({model.cond_stage_key: xc})
+
+                # Create unconditional conditioning 'uc' for the current batch size
+                uc = model.module.get_learned_conditioning({model.module.cond_stage_key: torch.tensor(len(xc) * [1000]).to(device)}) if hasattr(model, "module") else model.get_learned_conditioning({model.cond_stage_key: torch.tensor(len(xc) * [1000]).to(device)})
+
+                # Store condition vectors 'c'
+                condition_vectors.extend(c.cpu().numpy())  # Collecting condition vectors
+                condition_labels.extend([class_label for class_label in class_batch for _ in range(n_samples_per_class)])  # Collecting corresponding class labels
+
+                samples_ddim, intermediates = sampler.sample_with_intermediates_features(
+                    S=ddim_steps,
+                    conditioning=c,
+                    batch_size=len(xc),
+                    shape=[3, 64, 64],
+                    log_every_t=100,
+                    verbose=False,
+                    ddim_use_original_steps=ddim_use_original_steps,
+                    unconditional_guidance_scale=scale,
+                    unconditional_conditioning=uc,
+                    eta=ddim_eta
+                )
+
+                # Extracting and saving features
+                features = intermediates['features']
+                for index, feature in enumerate(features):
+                    if index not in features_by_index:
+                        features_by_index[index] = []
+                        labels_by_index[index] = []
+
+                    features_by_index[index].extend([f.cpu().numpy() for f in feature])
+                    labels_by_index[index].extend([class_label for class_label in class_batch for _ in range(n_samples_per_class)])
+
+    # rank 0에서만 저장
+    if rank == 0:
+        for index in features_by_index:
+            np.save(f'features_index_{index}.npy', np.array(features_by_index[index]))
+            np.save(f'labels_index_{index}.npy', np.array(labels_by_index[index]))
+
+        np.save('condition_vectors.npy', np.array(condition_vectors))
+        np.save('condition_labels.npy', np.array(condition_labels))
+
+    cleanup_ddp()  # DDP 종료
+
 
 def main(argv):
     warnings.simplefilter(action='ignore', category=FutureWarning)
-    
-    # distill_caching_base()
-    sampling_with_intermediates()
-    
-    # print(torch.cuda.device_count())  # 시스템에서 사용 가능한 GPU 수를 출력
-    # print(torch.cuda.current_device())  # 현재 사용 중인 GPU 장치 번호를 출력
+        # world_size 설정
+    os.environ['MASTER_ADDR'] = '127.0.0.1'
+    os.environ['MASTER_PORT'] = '12355'
 
+    world_size = torch.cuda.device_count()
+    print('world_size(gpu num): ', world_size)
+    
+    # Ensure we have multiple GPUs available
+    if world_size < 1:
+        print("No GPUs available for DDP. Exiting...")
+        sys.exit(1)
+
+    # Spawn processes for DDP
+    mp.spawn(
+        sampling_with_intermediates,
+        args=(world_size),
+        nprocs=world_size,
+        join=True
+    )
 
 if __name__ == '__main__':
     app.run(main)
