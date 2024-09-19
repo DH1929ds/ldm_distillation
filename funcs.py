@@ -152,7 +152,7 @@ def sample_save_images(num_sample_class, n_sample_per_class, steps, DDPM_samplin
                                                      conditioning=c,
                                                      batch_size=n_samples_per_class,
                                                      shape=[3, 64, 64],
-                                                     noises = noises[:,i:(i+1)*n_samples_per_class,:,:,:],
+                                                     noises = noises[:,i*n_samples_per_class:(i+1)*n_samples_per_class,:,:,:],
                                                      verbose=False,
                                                      ddim_use_original_steps=DDPM_sampling,
                                                      unconditional_guidance_scale=scale,
