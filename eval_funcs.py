@@ -23,7 +23,31 @@ import subprocess
 
 import re
 from collections import defaultdict
+import random
+import torch.distributed as dist
+import shutil
 
+def copy_files_from_folders_fid(source_folder, destination_folder):
+    """
+    한 폴더의 모든 파일을 다른 폴더로 복사하는 함수.
+    
+    Parameters:
+    - source_folder (str): 원본 폴더 경로.
+    - destination_folder (str): 복사할 파일들이 저장될 대상 폴더 경로.
+    """
+    
+    # 대상 폴더가 없다면 생성
+    if not os.path.exists(destination_folder):
+        os.makedirs(destination_folder)
+
+    # 원본 폴더에서 파일을 탐색하여 복사
+    for filename in os.listdir(source_folder):
+        src_file = os.path.join(source_folder, filename)
+        dst_file = os.path.join(destination_folder, filename)
+        
+        # 파일을 복사
+        shutil.copy(src_file, dst_file)
+        print(f'Copied {filename} from {source_folder} to {destination_folder}')
 
 
 def copy_files_from_folders(source_folder_1, source_folder_2, destination_folder, num_files_per_class=1):
@@ -37,7 +61,7 @@ def copy_files_from_folders(source_folder_1, source_folder_2, destination_folder
     
     # 대상 폴더가 없다면 생성
     if not os.path.exists(destination_folder):
-        os.makedirs(destination_folder)
+        os.makedirs(destination_folder, exist_ok=True)
 
     # 정규 표현식을 통해 파일명을 분석 (class_x_sample_y.png 형식)
     pattern = re.compile(r'class_(\d+)_sample_\d+\.png')
@@ -116,37 +140,42 @@ def save_samples_as_images(samples, folder_path, class_label, start_idx):
         output_image = Image.fromarray(img.astype(np.uint8))
         # 배치 시작 인덱스와 배치 내 인덱스를 결합하여 파일 이름 생성
         output_image.save(os.path.join(folder_path, f'class_{class_label}_sample_{start_idx + i}.png'))
-
-
-def sampling(model=None, output_folder = "output_samples", device="cuda", large_batch_size=250, small_batch_size=50, num_images=10000,cfg_scale=1.0, ddim_eta=1.0, DDIM_num_steps=25, classes = list(range(1000))):
-    
+        
+        
+        
+def sampling(model=None, output_folder="output_samples", device="cuda", large_batch_size=250, small_batch_size=50, 
+             num_images=10000, cfg_scale=1.0, ddim_eta=1.0, DDIM_num_steps=25, classes=list(range(1000)), n_samples_per_class=100, remaining_images=10):
     if model is None:
         model = get_model()
     model.to(device)
     
     sampler = DDIMSampler(model)
     
-    n_samples_per_class = num_images // len(classes)  # 클래스당 샘플 수
+    # 클래스당 생성할 샘플 수 계산
+    # n_samples_per_class = num_images // len(classes)
+    # remaining_images = num_images % len(classes)  # 나누어떨어지지 않은 나머지 이미지 수
     
-    ddim_steps = DDIM_num_steps # ddim step
-    
+    ddim_steps = DDIM_num_steps  # ddim step
     ddim_eta = ddim_eta  # eta 값
-    
     scale = cfg_scale  # for unconditional guidance 0: uncond, 1: no guidance cond
 
-    
     with torch.no_grad():
-        # unet은 큰 배치 사이즈, vae는 작은 배치 사이즈 사용
-
         with model.ema_scope():
             uc = model.get_learned_conditioning(
                 {model.cond_stage_key: torch.tensor(large_batch_size * [1000]).to(model.device)}
             )
             
+            # 클래스별로 이미지 생성
             all_classes = []
             for class_label in classes:
                 all_classes += [class_label] * n_samples_per_class
             
+            # 나머지 이미지 분배
+            if remaining_images > 0:
+                extra_classes = random.sample(classes, remaining_images)  # 무작위로 나머지 클래스 선택
+                all_classes += extra_classes
+
+            # 큰 배치로 샘플링 완료 후 작은 배치로 디코딩
             for i in range(0, len(all_classes), large_batch_size):
                 current_batch_size = min(large_batch_size, len(all_classes) - i)
                 current_classes = all_classes[i:i + current_batch_size]
@@ -166,7 +195,7 @@ def sampling(model=None, output_folder = "output_samples", device="cuda", large_
                 
                 torch.cuda.empty_cache()
                 
-                # 큰 배치로 샘플링 완료 후 작은 배치로 디코딩
+                # 작은 배치로 디코딩
                 for j in range(0, current_batch_size, small_batch_size):
                     current_small_batch_size = min(small_batch_size, current_batch_size - j)
                     small_batch_samples = samples_ddim[j:j + current_small_batch_size]
@@ -175,112 +204,297 @@ def sampling(model=None, output_folder = "output_samples", device="cuda", large_
                     x_samples_ddim = model.decode_first_stage(small_batch_samples)
                     x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0).cpu()
 
-                     # 배치 내 각 클래스에 맞는 폴더에 저장
+                    # 각 클래스별 폴더에 샘플 저장
                     for k, sample in enumerate(x_samples_ddim):
                         class_label = current_classes[j + k]
                         save_samples_as_images([sample], output_folder, class_label, i + j + k)
 
-                
                 # 메모리 캐시 정리
                 torch.cuda.empty_cache()
 
-
-
-def sample_and_cal_fid(device, num_images=50000, model=None, output_dir="./output_samples/", ddim_eta=1.0, cfg_scale=1.0, DDIM_num_steps=25, specific_classes=None):
-    
+def sample_and_cal_fid(rank, world_size, device, num_images=50000, model=None, output_dir="./output_samples/", ddim_eta=1.0, cfg_scale=1.0, DDIM_num_steps=25, specific_classes=None):
+    # 시작 시간 기록
     start_time = time.time()
 
+    # 특정 클래스가 지정되지 않으면 0~999까지 설정
     if specific_classes is None:
-        specific_classes = list(range(0,999))
+        specific_classes = list(range(0, 999))
+
+    # 각 GPU에 클래스 및 이미지 할당
+    classes_per_gpu = specific_classes[rank::world_size]  # 각 rank에 맞는 클래스를 분배
+    num_images_per_gpu = num_images // world_size  # GPU마다 할당될 이미지 수
+
+    if num_images % len(specific_classes) == 0:
+        n_samples_per_class = num_images // len(specific_classes)
+        remaining_images = num_images % len(specific_classes)
+    
+    else:
+        n_samples_per_class = num_images_per_gpu // len(classes_per_gpu)
+        remaining_images = num_images_per_gpu % len(classes_per_gpu)  
+
+    # # Specific 클래스 샘플링
+    output_specific_dir = f"output_samples_specific_{num_images}_all"
+    if not os.path.exists(output_specific_dir):
+        os.makedirs(output_specific_dir, exist_ok=True)
+    sampling(output_folder=output_specific_dir, model=model, device=device, num_images=num_images_per_gpu, 
+             ddim_eta=ddim_eta, cfg_scale=cfg_scale, DDIM_num_steps=DDIM_num_steps, classes=classes_per_gpu,
+             n_samples_per_class=n_samples_per_class, remaining_images=remaining_images)
+
+    # 모든 GPU가 작업을 완료할 때까지 대기
+    dist.barrier()
+
+    # exclude 리스트 샘플링
+    exclude_list = [x for x in range(0, 999) if x not in specific_classes]
+    classes_per_gpu_exclude = exclude_list[rank::world_size]
+
+
+    if num_images % len(exclude_list) == 0:
+        n_samples_per_class = num_images // len(exclude_list)
+        remaining_images = num_images % len(exclude_list)
+    
+    else:
+        n_samples_per_class = num_images_per_gpu // len(classes_per_gpu_exclude)
+        remaining_images = num_images_per_gpu % len(classes_per_gpu_exclude)  
+
+    output_exclude_dir = f"output_samples_exclude_{num_images}_all"
+    if not os.path.exists(output_exclude_dir):
+        os.makedirs(output_exclude_dir, exist_ok=True)
+    sampling(output_folder=output_exclude_dir, model=model, device=device, num_images=num_images_per_gpu, 
+             ddim_eta=ddim_eta, cfg_scale=cfg_scale, DDIM_num_steps=DDIM_num_steps, classes=classes_per_gpu_exclude,
+             n_samples_per_class=n_samples_per_class, remaining_images=remaining_images)
+    # sampling(output_folder=output_exclude_dir, model=model, device=device, num_images=num_images_per_gpu, 
+    #          ddim_eta=ddim_eta, cfg_scale=cfg_scale, DDIM_num_steps=DDIM_num_steps, classes=classes_per_gpu_exclude)
+
+    # 모든 GPU가 작업을 완료할 때까지 대기
+    dist.barrier()
+
+    if rank == 0:
+
+        output_all_dir = f"output_samples_{num_images}_all"
+        if not os.path.exists(output_all_dir):
+            os.makedirs(output_all_dir, exist_ok=True)
+        all_classes = list(range(0,1000))
+        copy_files_from_folders(source_folder_1=output_specific_dir, source_folder_2=output_exclude_dir, destination_folder=output_all_dir, num_files_per_class=(num_images // len(all_classes)))
+
+
+        # FID 계산을 위한 모든 작업 완료 후 Rank 0에서만 FID 계산
+    
+        # FID for specific
+        fid_specific_start_time = time.time()
+        print("start fid_specific_pair")
+        fid_value_specific = calculate_fid_given_paths(
+            ["50000_npz_files/trainset_seen_classes_50000.npz", output_specific_dir], 
+            batch_size=50, 
+            device=device, 
+            dims=2048
+        )
+        end_time_specific = time.time()
+        execution_time_specific = end_time_specific - fid_specific_start_time
+        print(f"finish calculate fid specific pair, {execution_time_specific}s")
+    
+        # FID for exclude
+        fid_exclude_start_time = time.time()
+        print("start fid_exclude_pair")
+        fid_value_exclude = calculate_fid_given_paths(
+            ["50000_npz_files/trainset_unseen_classes_50000.npz", output_exclude_dir], 
+            batch_size=50, 
+            device=device, 
+            dims=2048
+        )
+        end_time_exclude = time.time()
+        execution_time_exclude = end_time_exclude - fid_exclude_start_time
+        print(f"finish calculate fid exclude pair, {execution_time_exclude}s")
+
+        # FID for all (combined)
+        fid_all_start_time = time.time()
+        print("start fid_all_pair")
+        fid_value_all = calculate_fid_given_paths(
+            ["50000_npz_files/trainset_all_classes_50000.npz", output_all_dir], 
+            batch_size=50, 
+            device=device, 
+            dims=2048
+        )
+        end_time_all = time.time()
+        execution_time_all = end_time_all - fid_all_start_time
+        print(f"finish calculate fid all pair, {execution_time_all}s")
+
+        # 전체 실행 시간 기록
+        end_time = time.time()
+        execution_time = end_time - start_time
+        print(f"FID 실행 시간(sampling+cal_fid): {execution_time} 초")
+
+        # 디렉토리 삭제
+        delete_folder(output_specific_dir)
+        delete_folder(output_exclude_dir)
+        delete_folder(output_all_dir)
+
+
+        return fid_value_specific, fid_value_exclude, fid_value_all
+
+    else:
+        return None, None, None
+
+# def sampling(model=None, output_folder = "output_samples", device="cuda", large_batch_size=250, small_batch_size=50, num_images=10000,cfg_scale=1.0, ddim_eta=1.0, DDIM_num_steps=25, classes = list(range(1000))):
+    
+#     if model is None:
+#         model = get_model()
+#     model.to(device)
+    
+#     sampler = DDIMSampler(model)
+    
+#     n_samples_per_class = num_images // len(classes)  # 클래스당 샘플 수
+    
+#     ddim_steps = DDIM_num_steps # ddim step
+    
+#     ddim_eta = ddim_eta  # eta 값
+    
+#     scale = cfg_scale  # for unconditional guidance 0: uncond, 1: no guidance cond
+
+    
+#     with torch.no_grad():
+#         # unet은 큰 배치 사이즈, vae는 작은 배치 사이즈 사용
+
+#         with model.ema_scope():
+#             uc = model.get_learned_conditioning(
+#                 {model.cond_stage_key: torch.tensor(large_batch_size * [1000]).to(model.device)}
+#             )
+            
+#             all_classes = []
+#             for class_label in classes:
+#                 all_classes += [class_label] * n_samples_per_class
+            
+#             for i in range(0, len(all_classes), large_batch_size):
+#                 current_batch_size = min(large_batch_size, len(all_classes) - i)
+#                 current_classes = all_classes[i:i + current_batch_size]
+                
+#                 xc = torch.tensor(current_classes)
+#                 c = model.get_learned_conditioning({model.cond_stage_key: xc.to(model.device)})
+                
+#                 samples_ddim, _ = sampler.sample(S=ddim_steps,
+#                                                  conditioning=c,
+#                                                  batch_size=current_batch_size,
+#                                                  shape=[3, 64, 64],
+#                                                  verbose=False,
+#                                                  ddim_use_original_steps=False,
+#                                                  unconditional_guidance_scale=scale,
+#                                                  unconditional_conditioning=uc,
+#                                                  eta=ddim_eta)
+                
+#                 torch.cuda.empty_cache()
+                
+#                 # 큰 배치로 샘플링 완료 후 작은 배치로 디코딩
+#                 for j in range(0, current_batch_size, small_batch_size):
+#                     current_small_batch_size = min(small_batch_size, current_batch_size - j)
+#                     small_batch_samples = samples_ddim[j:j + current_small_batch_size]
+                    
+#                     # 작은 배치 디코딩
+#                     x_samples_ddim = model.decode_first_stage(small_batch_samples)
+#                     x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0).cpu()
+
+#                      # 배치 내 각 클래스에 맞는 폴더에 저장
+#                     for k, sample in enumerate(x_samples_ddim):
+#                         class_label = current_classes[j + k]
+#                         save_samples_as_images([sample], output_folder, class_label, i + j + k)
+
+                
+#                 # 메모리 캐시 정리
+#                 torch.cuda.empty_cache()
+
+# def sample_and_cal_fid(device, num_images=50000, model=None, output_dir="./output_samples/", ddim_eta=1.0, cfg_scale=1.0, DDIM_num_steps=25, specific_classes=None):
+    
+#     start_time = time.time()
+
+#     if specific_classes is None:
+#         specific_classes = list(range(0,999))
         
-    #print(len(specific_classes))
+#     #print(len(specific_classes))
 
     
-    ### specific ###
-    output_specific_dir = f"output_samples_specific_{num_images}"
+#     ### specific ###
+#     output_specific_dir = f"output_samples_specific_{num_images}"
     
-    sampling(output_folder=output_specific_dir, model=model, device=device, num_images=num_images, ddim_eta=ddim_eta, cfg_scale=cfg_scale, DDIM_num_steps=DDIM_num_steps, classes = specific_classes)
+#     sampling(output_folder=output_specific_dir, model=model, device=device, num_images=num_images, ddim_eta=ddim_eta, cfg_scale=cfg_scale, DDIM_num_steps=DDIM_num_steps, classes = specific_classes)
 
 
-    ### exclude ###
+#     ### exclude ###
 
-    exclude_list = [x for x in range(0,999) if x not in specific_classes]
-    output_exclude_dir = f"output_samples_exclude_{num_images}"
+#     exclude_list = [x for x in range(0,999) if x not in specific_classes]
+#     output_exclude_dir = f"output_samples_exclude_{num_images}"
     
-    exclude_classes = exclude_list
-    sampling(output_folder=output_exclude_dir, model=model, device=device, num_images=num_images, ddim_eta=ddim_eta, cfg_scale=cfg_scale, DDIM_num_steps=DDIM_num_steps, classes = exclude_classes)
+#     exclude_classes = exclude_list
+#     sampling(output_folder=output_exclude_dir, model=model, device=device, num_images=num_images, ddim_eta=ddim_eta, cfg_scale=cfg_scale, DDIM_num_steps=DDIM_num_steps, classes = exclude_classes)
 
 
-    ### all ###
-    output_all_dir = f"output_samples_all_{num_images}"
-    all_classes = list(range(0,1000))
+#     ### all ###
+#     output_all_dir = f"output_samples_all_{num_images}"
+#     all_classes = list(range(0,1000))
 
-    '''
-    sampling(output_folder=output_all_dir, model=model, device=device, num_images=num_images, ddim_eta=ddim_eta, cfg_scale=cfg_scale, DDIM_num_steps=DDIM_num_steps, classes = all_classes)
-    '''
+#     '''
+#     sampling(output_folder=output_all_dir, model=model, device=device, num_images=num_images, ddim_eta=ddim_eta, cfg_scale=cfg_scale, DDIM_num_steps=DDIM_num_steps, classes = all_classes)
+#     '''
 
-    copy_files_from_folders(source_folder_1=output_specific_dir, source_folder_2=output_exclude_dir, destination_folder=output_all_dir, num_files_per_class=(num_images // len(all_classes)))
-
-    
-    val_directory = output_dir
-
-    '''
-    fid
-    - (specific, specific')
-    - (exclude, exclude')
-    - (all, all')
-    '''
-
+#     copy_files_from_folders(source_folder_1=output_specific_dir, source_folder_2=output_exclude_dir, destination_folder=output_all_dir, num_files_per_class=(num_images // len(all_classes)))
 
     
-    # FID 계산
-    fid_specific_start_time = time.time()
-    print("start fid_specific_pair")
-    fid_value_specific = calculate_fid_given_paths(["50000_npz_files/trainset_seen_classes_50000.npz", output_specific_dir], 
-                                                   batch_size=50, 
-                                                   device=device, 
-                                                   dims=2048)
-    end_time_specific = time.time()
-    execution_time_specific = end_time_specific - fid_specific_start_time
-    print(f"finish calculate fid specific pair, {execution_time_specific}s")
-    
-    
-    fid_exclude_start_time = time.time()
-    print("start fid_exclude_pair")
-    fid_value_exclude = calculate_fid_given_paths(["50000_npz_files/trainset_unseen_classes_50000.npz", output_exclude_dir], 
-                                                  batch_size=50, 
-                                                  device=device, 
-                                                  dims=2048)
-    end_time_exclude = time.time()
-    execution_time_exclude = end_time_exclude - fid_exclude_start_time
-    print(f"finish calculate fid exclude pair, {execution_time_exclude}s")
+#     val_directory = output_dir
+
+#     '''
+#     fid
+#     - (specific, specific')
+#     - (exclude, exclude')
+#     - (all, all')
+#     '''
+
 
     
-    fid_all_start_time = time.time()
-    print("start fid_all_pair")
-    fid_value_all = calculate_fid_given_paths(["50000_npz_files/trainset_all_classes_50000.npz", output_all_dir], 
-                                              batch_size=50, 
-                                              device=device, 
-                                              dims=2048)
-    end_time_all = time.time()
-    execution_time_all = end_time_all - fid_all_start_time
-    print(f"finish calculate fid all pair, {execution_time_all}s")
-
-    end_time = time.time()
-    execution_time = end_time - start_time
+#     # FID 계산
+#     fid_specific_start_time = time.time()
+#     print("start fid_specific_pair")
+#     fid_value_specific = calculate_fid_given_paths(["50000_npz_files/trainset_seen_classes_50000.npz", output_specific_dir], 
+#                                                    batch_size=50, 
+#                                                    device=device, 
+#                                                    dims=2048)
+#     end_time_specific = time.time()
+#     execution_time_specific = end_time_specific - fid_specific_start_time
+#     print(f"finish calculate fid specific pair, {execution_time_specific}s")
     
-    print(f"FID score_specific_pair: {fid_value_specific}")
-    print(f"FID score_exclude_pair: {fid_value_exclude}")
-    print(f"FID score_all_pair: {fid_value_all}")
-
-    print(f"FID 실행 시간(sampling+cal_fid): {execution_time} 초")
-
-    #delete_folder(val_directory)
-    delete_folder(output_specific_dir)
-    delete_folder(output_exclude_dir)
-    delete_folder(output_all_dir)
     
-    return fid_value_specific, fid_value_exclude, fid_value_all
+#     fid_exclude_start_time = time.time()
+#     print("start fid_exclude_pair")
+#     fid_value_exclude = calculate_fid_given_paths(["50000_npz_files/trainset_unseen_classes_50000.npz", output_exclude_dir], 
+#                                                   batch_size=50, 
+#                                                   device=device, 
+#                                                   dims=2048)
+#     end_time_exclude = time.time()
+#     execution_time_exclude = end_time_exclude - fid_exclude_start_time
+#     print(f"finish calculate fid exclude pair, {execution_time_exclude}s")
+
+    
+#     fid_all_start_time = time.time()
+#     print("start fid_all_pair")
+#     fid_value_all = calculate_fid_given_paths(["50000_npz_files/trainset_all_classes_50000.npz", output_all_dir], 
+#                                               batch_size=50, 
+#                                               device=device, 
+#                                               dims=2048)
+#     end_time_all = time.time()
+#     execution_time_all = end_time_all - fid_all_start_time
+#     print(f"finish calculate fid all pair, {execution_time_all}s")
+
+#     end_time = time.time()
+#     execution_time = end_time - start_time
+    
+#     print(f"FID score_specific_pair: {fid_value_specific}")
+#     print(f"FID score_exclude_pair: {fid_value_exclude}")
+#     print(f"FID score_all_pair: {fid_value_all}")
+
+#     print(f"FID 실행 시간(sampling+cal_fid): {execution_time} 초")
+
+#     #delete_folder(val_directory)
+#     delete_folder(output_specific_dir)
+#     delete_folder(output_exclude_dir)
+#     delete_folder(output_all_dir)
+    
+#     return fid_value_specific, fid_value_exclude, fid_value_all
 
 def main():
 
