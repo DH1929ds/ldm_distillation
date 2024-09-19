@@ -371,7 +371,13 @@ def distillation(rank, world_size, args):
             
                 ################### Save student model ################################
                 if step>0 and args.save_step > 0 and step/args.gradient_accumulation_steps % args.save_step == 0:
+                    save_checkpoint(S_model.module, scheduler, optimizer, int(step//args.gradient_accumulation_steps), args.logdir)         
+                           
+                # Save model at the final step
+                if step == args.total_steps * args.gradient_accumulation_steps - 1:
+                    print(f"Saving final model at step {step}")
                     save_checkpoint(S_model.module, scheduler, optimizer, int(step//args.gradient_accumulation_steps), args.logdir)
+                
                     
                 ################### Evaluate student model ##############################
                 if step>0 and args.eval_step > 0 and step/args.gradient_accumulation_steps % args.eval_step == 0:# and step != 0:
