@@ -26,8 +26,6 @@ def load_model_from_config(config, ckpt):
     sd = pl_sd["state_dict"]
     model = instantiate_from_config(config.model)
     m, u = model.load_state_dict(sd, strict=False)
-    model.cuda()
-    model.eval()
     return model
 
 
@@ -173,11 +171,12 @@ def sampling_with_intermediates(rank, world_size, batch_size=32):
     device = torch.device(f"cuda:{rank}")
     model.to(device)
     model = nn.parallel.DistributedDataParallel(model, device_ids=[rank])
+    model.eval()
 
     sampler = DDIMSampler(model.module if hasattr(model, "module") else model)
     
     classes = list(range(1001))  # Define classes to be sampled here
-    n_samples_per_class = 6
+    n_samples_per_class = 4
     
     ddim_steps = 100
     ddim_eta = 1.0
