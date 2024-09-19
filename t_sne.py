@@ -1,22 +1,7 @@
-import torch
-from omegaconf import OmegaConf
-import numpy as np
-from PIL import Image
-from einops import rearrange
-from torchvision.utils import make_grid
-
-import torch.nn as nn
-import torch.multiprocessing as mp
-import torch.distributed as dist
-import os, sys
+import os
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 import numpy as np
-
-from ldm.util import instantiate_from_config
-from ldm.models.diffusion.ddim import DDIMSampler
-from absl import app, flags
-import warnings
 
 def tsne_visualization_by_index(index):
     # Define the folder path
