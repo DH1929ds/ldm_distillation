@@ -254,6 +254,13 @@ def sampling_with_intermediates(rank, world_size, batch_size=32):
     # Perform t-SNE on condition vectors
     tsne_visualization_conditions('condition_vectors.npy', 'condition_labels.npy')
 
+def ff():
+    for index in range(10):
+        tsne_visualization_by_index(index)
+    
+    # Perform t-SNE on condition vectors
+    tsne_visualization_conditions('condition_vectors.npy', 'condition_labels.npy')
+        
 def main(argv):
     warnings.simplefilter(action='ignore', category=FutureWarning)
         # world_size 설정
@@ -262,6 +269,8 @@ def main(argv):
 
     world_size = torch.cuda.device_count()
     print('world_size(gpu num): ', world_size)
+    
+    ff()
     
     # Ensure we have multiple GPUs available
     if world_size < 1:
