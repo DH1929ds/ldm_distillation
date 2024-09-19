@@ -247,7 +247,12 @@ def sampling_with_intermediates(rank, world_size, batch_size=32):
         np.save('condition_labels.npy', np.array(condition_labels))
 
     cleanup_ddp()  # DDP 종료
-
+    
+    for index in range(len(intermediates['features'])):
+        tsne_visualization_by_index(index)
+    
+    # Perform t-SNE on condition vectors
+    tsne_visualization_conditions('condition_vectors.npy', 'condition_labels.npy')
 
 def main(argv):
     warnings.simplefilter(action='ignore', category=FutureWarning)
