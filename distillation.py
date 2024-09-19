@@ -460,8 +460,6 @@ def main(argv):
         os.environ['TORCH_NCCL_BLOCKING_WAIT'] = '1'
         os.environ['NCCL_TIMEOUT'] = '1800'
         os.environ['NCCL_TIMEOUT_MS'] = '1200000'  # 개별 NCCL 작업의 타임아웃을 20분으로 설정
-        os.environ['NCCL_DEBUG'] = 'INFO'  # INFO 레벨에서 NCCL 디버깅 메시지 활성화
-        os.environ['NCCL_DEBUG_SUBSYS'] = 'ALL'  # 모든 서브시스템의 디버그 로그 활성화
 
         # world_size 설정
         os.environ['MASTER_ADDR'] = distill_args.MASTER_ADDR
