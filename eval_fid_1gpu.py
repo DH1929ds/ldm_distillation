@@ -1,3 +1,6 @@
+## How to use ###
+# python eval_fid_1gpu.py --model_path xxx/yyy/zzz.pt --output_dir ./aaa --num_images 50000 --device cuda:0 --cfg_scale 1.0 --ddim_eta 1.0 --DDIM_num_steps 25
+
 import torch
 from omegaconf import OmegaConf
 import numpy as np
