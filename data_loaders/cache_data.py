@@ -163,12 +163,11 @@ class Cache_Dataset(Dataset):
         return img_cache_split, t_cache_split, c_emb_cache_split, class_cache_split
 
     @staticmethod
-    def scatter_cache_data(img_cache_split, t_cache_split, c_emb_cache_split, class_cache_split, rank):
-        img_cache = torch.empty(0)
-        t_cache = torch.empty(0)
-        c_emb_cache = torch.empty(0)
-        class_cache = torch.empty(0)
-
+    def scatter_cache_data(img_cache_split, t_cache_split, c_emb_cache_split, class_cache_split, rank, device):
+        img_cache = torch.empty_like(img_cache_split[0], device=device)
+        t_cache = torch.empty_like(t_cache_split[0], device=device)
+        c_emb_cache = torch.empty_like(c_emb_cache_split[0], device=device)
+        class_cache = torch.empty_like(class_cache_split[0], device=device)
 
         if rank == 0:
             dist.scatter(img_cache, scatter_list=img_cache_split, src=0)
