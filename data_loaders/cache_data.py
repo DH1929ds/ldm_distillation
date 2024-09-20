@@ -5,7 +5,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.multiprocessing as mp
 
-import os
+import os, sys
 import torch
 
 def load_cache(cachedir):
@@ -53,12 +53,119 @@ def load_cache(cachedir):
 
     
 class Cache_Dataset(Dataset):
-    def __init__(self, img_cache, t_cache, c_emb_cache, class_cache):
+    def __init__(self, cachedir, rank, world_size):
+        if rank == 0:
+            img_cache, t_cache, c_emb_cache, class_cache = self.load_cache(cachedir)
+            print('load_cache, size:', img_cache.shape[0])
+
+            if img_cache.numel() == 0 or t_cache.numel() == 0 or c_emb_cache.numel() == 0 or class_cache.numel() == 0:
+                print("The cache is empty. You need to generate the cache.")
+                dist.barrier()  # Synchronize before exit
+                dist.destroy_process_group()
+                sys.exit(1)
+
+            # Rank 0에서 데이터를 각 프로세스에 나누기 위해 준비
+            img_cache_split, t_cache_split, c_emb_cache_split, class_cache_split = self.split_cache_for_ranks(
+                img_cache, t_cache, c_emb_cache, class_cache, world_size
+            )
+        else:
+            # 다른 rank에서는 빈 텐서 할당
+            img_cache_split = [torch.empty(0) for _ in range(world_size)]
+            t_cache_split = [torch.empty(0) for _ in range(world_size)]
+            c_emb_cache_split = [torch.empty(0) for _ in range(world_size)]
+            class_cache_split = [torch.empty(0) for _ in range(world_size)]
+
+        # 각 rank에 데이터 분배
+        img_cache, t_cache, c_emb_cache, class_cache = self.scatter_cache_data(
+            img_cache_split, t_cache_split, c_emb_cache_split, class_cache_split, rank
+        )
+
+        print(f"Rank {rank} received cache, size: {img_cache.shape[0]}")
+
         # 각 캐시를 초기화
         self.img_cache = img_cache
         self.t_cache = t_cache
         self.c_emb_cache = c_emb_cache
         self.class_cache = class_cache
+
+    @staticmethod
+    def load_cache(cachedir):
+        # 각 캐시 텐서를 저장할 리스트 초기화
+        img_cache_list = []
+        t_cache_list = []
+        c_emb_cache_list = []
+        class_cache_list = []
+
+        # 캐시 파일을 찾기 위한 기본 디렉토리 설정
+        base_dir = f"./{cachedir}"
+
+        # cachedir 안의 각 cache_n 디렉토리를 순회
+        for cache_n in sorted(os.listdir(base_dir)):
+            cache_n_dir = os.path.join(base_dir, cache_n)
+
+            # cache_n 디렉토리가 존재하는지 확인
+            if os.path.isdir(cache_n_dir):
+                # cache_n 디렉토리 안의 파일을 순회
+                for file_name in sorted(os.listdir(cache_n_dir)):
+                    # 파일 이름이 img_cache 패턴에 맞는지 확인
+                    if file_name.startswith(f"img_cache_{cache_n}_") and file_name.endswith('.pt'):
+                        seed = file_name.split('_')[-1].replace('.pt', '')
+
+                        # 각 캐시 파일 불러오기
+                        img_cache = torch.load(os.path.join(cache_n_dir, f"img_cache_{cache_n}_{seed}.pt"), map_location='cpu')
+                        t_cache = torch.load(os.path.join(cache_n_dir, f"t_cache_{cache_n}_{seed}.pt"), map_location='cpu')
+                        c_emb_cache = torch.load(os.path.join(cache_n_dir, f"c_emb_cache_{cache_n}_{seed}.pt"), map_location='cpu')
+                        class_cache = torch.load(os.path.join(cache_n_dir, f"class_cache_{cache_n}_{seed}.pt"), map_location='cpu')
+
+                        # 불러온 캐시를 리스트에 추가
+                        img_cache_list.append(img_cache)
+                        t_cache_list.append(t_cache)
+                        c_emb_cache_list.append(c_emb_cache)
+                        class_cache_list.append(class_cache)
+
+        # 0번째 차원에 대해 캐시들을 이어 붙임
+        img_cache = torch.cat(img_cache_list, dim=0)
+        t_cache = torch.cat(t_cache_list, dim=0)
+        c_emb_cache = torch.cat(c_emb_cache_list, dim=0)
+        class_cache = torch.cat(class_cache_list, dim=0)
+
+        # 이어 붙인 캐시들을 반환
+        return img_cache, t_cache, c_emb_cache, class_cache
+
+    @staticmethod
+    def split_cache_for_ranks(img_cache, t_cache, c_emb_cache, class_cache, world_size):
+        # 각 rank에 분배할 크기 계산
+        size_per_rank = img_cache.shape[0] // world_size
+        remainder = img_cache.shape[0] % world_size
+
+        # 각 rank로 분할할 텐서들 생성
+        img_cache_split = [img_cache[i * size_per_rank:(i + 1) * size_per_rank] for i in range(world_size)]
+        t_cache_split = [t_cache[i * size_per_rank:(i + 1) * size_per_rank] for i in range(world_size)]
+        c_emb_cache_split = [c_emb_cache[i * size_per_rank:(i + 1) * size_per_rank] for i in range(world_size)]
+        class_cache_split = [class_cache[i * size_per_rank:(i + 1) * size_per_rank] for i in range(world_size)]
+
+        # 만약 나누어 떨어지지 않는 경우, 남은 데이터는 마지막 rank에 추가
+        if remainder:
+            img_cache_split[-1] = torch.cat([img_cache_split[-1], img_cache[-remainder:]], dim=0)
+            t_cache_split[-1] = torch.cat([t_cache_split[-1], t_cache[-remainder:]], dim=0)
+            c_emb_cache_split[-1] = torch.cat([c_emb_cache_split[-1], c_emb_cache[-remainder:]], dim=0)
+            class_cache_split[-1] = torch.cat([class_cache_split[-1], class_cache[-remainder:]], dim=0)
+
+        return img_cache_split, t_cache_split, c_emb_cache_split, class_cache_split
+
+    @staticmethod
+    def scatter_cache_data(img_cache_split, t_cache_split, c_emb_cache_split, class_cache_split, rank):
+        img_cache = torch.empty(0)
+        t_cache = torch.empty(0)
+        c_emb_cache = torch.empty(0)
+        class_cache = torch.empty(0)
+
+        dist.scatter(img_cache, scatter_list=img_cache_split, src=0)
+        dist.scatter(t_cache, scatter_list=t_cache_split, src=0)
+        dist.scatter(c_emb_cache, scatter_list=c_emb_cache_split, src=0)
+        dist.scatter(class_cache, scatter_list=class_cache_split, src=0)
+
+        return img_cache, t_cache, c_emb_cache, class_cache
     
     def __len__(self):
         # 데이터셋의 길이를 img_cache의 길이로 반환 (모든 캐시는 동일 길이를 가정)

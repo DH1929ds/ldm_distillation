@@ -312,28 +312,27 @@ def distillation(rank, world_size, args):
     # scheduler = LambdaLR(optimizer, lr_lambda=lambda epoch: 1.0)
 
 
-    img_cache, t_cache, c_emb_cache, class_cache = load_cache(args.cachedir) # 함수 추가
-    print('load_cache, size:', img_cache.shape[0])
+    # img_cache, t_cache, c_emb_cache, class_cache = load_cache(args.cachedir) # 함수 추가
+    # print('load_cache, size:', img_cache.shape[0])
     
-    if img_cache.numel() == 0 or t_cache.numel() == 0 or c_emb_cache.numel() == 0 or class_cache.numel() == 0:
-        print("The cache is empty. You need to generate the cache.")        
-        dist.barrier()  # Synchronize before exit
-        dist.destroy_process_group()
-        sys.exit(1)
+    # if img_cache.numel() == 0 or t_cache.numel() == 0 or c_emb_cache.numel() == 0 or class_cache.numel() == 0:
+    #     print("The cache is empty. You need to generate the cache.")        
+    #     dist.barrier()  # Synchronize before exit
+    #     dist.destroy_process_group()
+    #     sys.exit(1)
     
-    cache_dataset = Cache_Dataset(img_cache, t_cache, c_emb_cache, class_cache) # 함수 추가
+    cache_dataset = Cache_Dataset(args.cachedir, rank, world_size)
     
     # DDP를 위한 샘플러와 DataLoader 생성
-    sampler = DistributedSampler(cache_dataset, num_replicas=world_size, rank=rank, shuffle=True)
-    dataloader = DataLoader(cache_dataset, batch_size=args.batch_size, collate_fn=custom_collate_fn, sampler=sampler)
+    dataloader = DataLoader(cache_dataset, batch_size=args.batch_size, collate_fn=custom_collate_fn, shuffle=True)
     dataloader_cycle = cycle(dataloader)
     
     with trange(args.total_steps*args.gradient_accumulation_steps, dynamic_ncols=True, disable=(rank != 0)) as pbar:
         for step in pbar:
             # step이 epoch의 시작을 나타낼 때마다 sampler의 epoch을 업데이트
             if step % len(dataloader) == 0:
-                epoch = step // len(dataloader)
-                sampler.set_epoch(epoch)  # Sampler의 epoch을 업데이트하여 새로운 셔플링 수행
+                dataloader = DataLoader(cache_dataset, batch_size=args.batch_size, collate_fn=custom_collate_fn, shuffle=True)
+                dataloader_cycle = cycle(dataloader)
 
             # optimizer.zero_grad()
 
