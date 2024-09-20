@@ -70,8 +70,9 @@ def load_model_from_config(config, ckpt):
     pl_sd = torch.load(ckpt)  # , map_location="cpu")
     
     # sd = pl_sd["state_dict"]
-    # student 모델이라 state_dict -> student_model
-    # teacher의 경우 sd = pl_sd["state_dict"] 사용
+    # student 모델이라 "state_dict" 대신 "student_model" 사용
+    
+    # teacher의 경우 sd = pl_sd["state_dict"]로 대체
     sd = pl_sd['student_model']
     
     model = instantiate_from_config(config.model)
@@ -82,16 +83,13 @@ def load_model_from_config(config, ckpt):
 
 
 def get_model(model=None):
-    config = OmegaConf.load("./cin256-v2.yaml")
+    config = OmegaConf.load("configs/latent-diffusion/cin256-v2.yaml")
 
     # teacher
     if model is None:
-        model = load_model_from_config(config, "./model.ckpt")
+        model = load_model_from_config(config, "models/ldm/cin256-v2/model.ckpt")
 
     # student
-    # /home/jovyan/fileviewer/ldm_distillation/logs/cin256-v2/student_ckpt_step_50000.pt
-
-    
     model = load_model_from_config(config, f"{model}")
     return model
 
@@ -249,11 +247,13 @@ def sample_and_cal_fid(device, num_images=50000, model=None, output_dir="./outpu
     ### all ###
     output_all_dir = f"{output_dir}/output_samples_all_{num_images}"
     all_classes = list(range(0,1000))
+    
     '''
-    Not sampling, but copy and paste.
+    "Not sampling, but copy and paste."
     
     sampling(output_folder=output_all_dir, model=model, device=device, num_images=num_images, ddim_eta=ddim_eta, cfg_scale=cfg_scale, DDIM_num_steps=DDIM_num_steps, classes = all_classes)
     '''
+    
     num_files_per_class = num_images // len(all_classes)
     copy_files_from_folders(source_folder_1=output_specific_dir, source_folder_2=output_exclude_dir, destination_folder=output_all_dir, num_files_per_class=num_files_per_class)
 
@@ -368,8 +368,8 @@ def get_parser():
 
 def main():
     # test
-    #device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    #output_dir = "./output_samples/"
+    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    # output_dir = "./output_samples/"
     # ddim_eta=1.0, cfg_scale=1.0
     
     args = get_parser().parse_args()
