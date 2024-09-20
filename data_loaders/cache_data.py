@@ -89,9 +89,9 @@ class Cache_Dataset(Dataset):
                     if file_name.startswith(f"img_cache_{cache_n}_") and file_name.endswith('.pt'):
                         seed = file_name.split('_')[-1].replace('.pt', '')
                         img_cache = torch.load(os.path.join(cache_n_dir, f"img_cache_{cache_n}_{seed}.pt"), map_location='cpu')
-                        t_cache = torch.load(os.path.join(cachedir, f"t_cache_{cache_n}_{seed}.pt"), map_location='cpu')
-                        c_emb_cache = torch.load(os.path.join(cachedir, f"c_emb_cache_{cache_n}_{seed}.pt"), map_location='cpu')
-                        class_cache = torch.load(os.path.join(cachedir, f"class_cache_{cache_n}_{seed}.pt"), map_location='cpu')
+                        t_cache = torch.load(os.path.join(cache_n_dir, f"t_cache_{cache_n}_{seed}.pt"), map_location='cpu')
+                        c_emb_cache = torch.load(os.path.join(cache_n_dir, f"c_emb_cache_{cache_n}_{seed}.pt"), map_location='cpu')
+                        class_cache = torch.load(os.path.join(cache_n_dir, f"class_cache_{cache_n}_{seed}.pt"), map_location='cpu')
 
                         img_cache_list.append(img_cache)
                         t_cache_list.append(t_cache)
