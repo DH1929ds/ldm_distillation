@@ -114,6 +114,26 @@ def save_checkpoint(S_model, optimizer, step, logdir):
     torch.save(ckpt, save_path)
     print(f"Checkpoint saved at step {step} to {save_path}")
 
+def save_cache(cache_dataset, step, logdir, rank):
+    
+    cache_dir = os.path.join(logdir, f'cache_step_{step}')
+    cache_save_path = os.path.join(cache_dir, f'cache_step_{step}_rank_{rank}.pt')
+    
+    # 디렉토리 존재 여부를 확인하고, 없으면 생성
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir)
+    
+    cache_data = {
+        'img_cache': cache_dataset.img_cache,
+        't_cache': cache_dataset.t_cache,
+        'c_emb_cache': cache_dataset.c_emb_cache,
+        'class_cache': cache_dataset.class_cache,
+    }
+    
+    torch.save(cache_data, cache_save_path)
+    print(f"Cache saved at step {step} to {cache_save_path}")
+    
+    
 def sample_save_images(num_sample_class, n_sample_per_class, steps, DDPM_sampling, eta,
                        cfg_scale, T_model, S_model, T_sampler, S_sampler, step, rank, world_size):
     classes_per_gpu = num_sample_class // world_size

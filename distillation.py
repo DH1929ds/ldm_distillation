@@ -35,7 +35,12 @@ from diffusers.optimization import get_scheduler
 
 from ldm.models.diffusion.ddim import DDIMSampler
 from trainer import distillation_DDPM_trainer
-from funcs import load_model_from_config, get_model_teacher, load_model_from_config_without_ckpt, get_model_student, initialize_params, sample_save_images, save_checkpoint, print_gpu_memory_usage, visualize_t_cache_distribution
+from funcs import (load_model_from_config, get_model_teacher, 
+                   load_model_from_config_without_ckpt, 
+                   get_model_student, initialize_params, 
+                   sample_save_images, save_checkpoint,
+                   save_cache, print_gpu_memory_usage, 
+                   visualize_t_cache_distribution)
 from eval_funcs import sample_and_cal_fid
 from data_loaders.cache_data import load_cache, Cache_Dataset, custom_collate_fn
 
@@ -307,28 +312,27 @@ def distillation(rank, world_size, args):
     # scheduler = LambdaLR(optimizer, lr_lambda=lambda epoch: 1.0)
 
 
-    img_cache, t_cache, c_emb_cache, class_cache = load_cache(args.cachedir) # 함수 추가
-    print('load_cache, size:', img_cache.shape[0])
+    # img_cache, t_cache, c_emb_cache, class_cache = load_cache(args.cachedir) # 함수 추가
+    # print('load_cache, size:', img_cache.shape[0])
     
-    if img_cache.numel() == 0 or t_cache.numel() == 0 or c_emb_cache.numel() == 0 or class_cache.numel() == 0:
-        print("The cache is empty. You need to generate the cache.")        
-        dist.barrier()  # Synchronize before exit
-        dist.destroy_process_group()
-        sys.exit(1)
+    # if img_cache.numel() == 0 or t_cache.numel() == 0 or c_emb_cache.numel() == 0 or class_cache.numel() == 0:
+    #     print("The cache is empty. You need to generate the cache.")        
+    #     dist.barrier()  # Synchronize before exit
+    #     dist.destroy_process_group()
+    #     sys.exit(1)
     
-    cache_dataset = Cache_Dataset(img_cache, t_cache, c_emb_cache, class_cache) # 함수 추가
+    cache_dataset = Cache_Dataset(args.cachedir, rank, world_size)
     
     # DDP를 위한 샘플러와 DataLoader 생성
-    sampler = DistributedSampler(cache_dataset, num_replicas=world_size, rank=rank, shuffle=True)
-    dataloader = DataLoader(cache_dataset, batch_size=args.batch_size, collate_fn=custom_collate_fn, sampler=sampler)
+    dataloader = DataLoader(cache_dataset, batch_size=args.batch_size, collate_fn=custom_collate_fn, shuffle=True)
     dataloader_cycle = cycle(dataloader)
     
     with trange(args.total_steps*args.gradient_accumulation_steps, dynamic_ncols=True, disable=(rank != 0)) as pbar:
         for step in pbar:
             # step이 epoch의 시작을 나타낼 때마다 sampler의 epoch을 업데이트
             if step % len(dataloader) == 0:
-                epoch = step // len(dataloader)
-                sampler.set_epoch(epoch)  # Sampler의 epoch을 업데이트하여 새로운 셔플링 수행
+                dataloader = DataLoader(cache_dataset, batch_size=args.batch_size, collate_fn=custom_collate_fn, shuffle=True)
+                dataloader_cycle = cycle(dataloader)
 
             # optimizer.zero_grad()
 
@@ -367,13 +371,11 @@ def distillation(rank, world_size, args):
                     pbar.set_postfix(distill_loss='%.3f' % (total_loss.item()* args.gradient_accumulation_steps))
                 
                 ################### Save student model ################################
-                if step>0 and args.save_step > 0 and step/args.gradient_accumulation_steps % args.save_step == 0:
+                if step>0 and args.save_step > 0 and step/args.gradient_accumulation_steps % args.save_step == 0 or step == args.total_steps * args.gradient_accumulation_steps - 1:
                     save_checkpoint(S_model.module, optimizer, int(step//args.gradient_accumulation_steps), args.logdir)      
-                           
-                # Save model at the final step
-                if step == args.total_steps * args.gradient_accumulation_steps - 1:
-                    print(f"Saving final model at step {step}")
-                    save_checkpoint(S_model.module, optimizer, int(step//args.gradient_accumulation_steps), args.logdir)
+                    
+            if step>0 and args.save_step > 0 and step/args.gradient_accumulation_steps % args.save_step == 0 or step == args.total_steps * args.gradient_accumulation_steps - 1:
+                save_cache(cache_dataset, int(step//args.gradient_accumulation_steps), args.logdir, rank)
                     
                 
             ################### Sample and save student outputs############################

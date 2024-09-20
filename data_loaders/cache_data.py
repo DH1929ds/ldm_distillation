@@ -5,7 +5,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.multiprocessing as mp
 
-import os
+import os, sys, glob
 import torch
 
 def load_cache(cachedir):
@@ -53,12 +53,93 @@ def load_cache(cachedir):
 
     
 class Cache_Dataset(Dataset):
-    def __init__(self, img_cache, t_cache, c_emb_cache, class_cache):
-        # 각 캐시를 초기화
-        self.img_cache = img_cache
-        self.t_cache = t_cache
-        self.c_emb_cache = c_emb_cache
-        self.class_cache = class_cache
+    def __init__(self, cachedir, rank, world_size):
+        # 저장 디렉토리 설정
+        save_dir = os.path.join(cachedir, f'gpu_split/worldsize_{world_size}')
+        os.makedirs(save_dir, exist_ok=True)
+        
+        if rank == 0:
+            # rank 0에서 전체 캐시 로드
+            img_cache, t_cache, c_emb_cache, class_cache = self.load_cache(cachedir)
+            total_size = img_cache.shape[0]
+            print('Loaded cache, total size:', total_size)
+
+            # 캐시 데이터 분할 및 저장
+            self.split_and_save_cache(img_cache, t_cache, c_emb_cache, class_cache, world_size, save_dir, total_size)
+            dist.barrier()  # 다른 rank들이 기다리도록 동기화
+
+        else:
+            dist.barrier()  # rank 0이 파일을 저장할 때까지 기다림
+
+        # 분할된 데이터를 각 rank가 로드
+        self.img_cache, self.t_cache, self.c_emb_cache, self.class_cache = self.load_split_cache(rank, save_dir)
+
+        print(f"Rank {rank} loaded its cache, size: {self.img_cache.shape[0]}")
+
+    @staticmethod
+    def load_cache(cachedir):
+        # 캐시 텐서를 로드하는 로직 (이전과 동일)
+        img_cache_list, t_cache_list, c_emb_cache_list, class_cache_list = [], [], [], []
+
+        for cache_n in sorted(os.listdir(cachedir)):
+            cache_n_dir = os.path.join(cachedir, cache_n)
+
+            if os.path.isdir(cache_n_dir):
+                for file_name in sorted(os.listdir(cache_n_dir)):
+                    if file_name.startswith(f"img_cache_{cache_n}_") and file_name.endswith('.pt'):
+                        seed = file_name.split('_')[-1].replace('.pt', '')
+                        img_cache = torch.load(os.path.join(cache_n_dir, f"img_cache_{cache_n}_{seed}.pt"), map_location='cpu')
+                        t_cache = torch.load(os.path.join(cache_n_dir, f"t_cache_{cache_n}_{seed}.pt"), map_location='cpu')
+                        c_emb_cache = torch.load(os.path.join(cache_n_dir, f"c_emb_cache_{cache_n}_{seed}.pt"), map_location='cpu')
+                        class_cache = torch.load(os.path.join(cache_n_dir, f"class_cache_{cache_n}_{seed}.pt"), map_location='cpu')
+
+                        img_cache_list.append(img_cache)
+                        t_cache_list.append(t_cache)
+                        c_emb_cache_list.append(c_emb_cache)
+                        class_cache_list.append(class_cache)
+
+        img_cache = torch.cat(img_cache_list, dim=0)
+        t_cache = torch.cat(t_cache_list, dim=0)
+        c_emb_cache = torch.cat(c_emb_cache_list, dim=0)
+        class_cache = torch.cat(class_cache_list, dim=0)
+
+        return img_cache, t_cache, c_emb_cache, class_cache
+
+    @staticmethod
+    def split_and_save_cache(img_cache, t_cache, c_emb_cache, class_cache, world_size, save_dir, total_size):
+        size_per_rank = img_cache.shape[0] // world_size
+
+        for rank in range(world_size):
+            start_idx = rank * size_per_rank
+            end_idx = (rank + 1) * size_per_rank if rank != world_size - 1 else img_cache.shape[0]
+
+            img_cache_split = img_cache[start_idx:end_idx]
+            t_cache_split = t_cache[start_idx:end_idx]
+            c_emb_cache_split = c_emb_cache[start_idx:end_idx]
+            class_cache_split = class_cache[start_idx:end_idx]
+
+            split_size = img_cache_split.shape[0]
+
+            # rank별로 분할된 데이터를 저장, 파일명에 총 크기와 분할된 크기를 포함
+            torch.save(img_cache_split, os.path.join(save_dir, f'img_cache_rank_{rank}_size_{split_size}_of_{total_size}.pt'))
+            torch.save(t_cache_split, os.path.join(save_dir, f't_cache_rank_{rank}_size_{split_size}_of_{total_size}.pt'))
+            torch.save(c_emb_cache_split, os.path.join(save_dir, f'c_emb_cache_rank_{rank}_size_{split_size}_of_{total_size}.pt'))
+            torch.save(class_cache_split, os.path.join(save_dir, f'class_cache_rank_{rank}_size_{split_size}_of_{total_size}.pt'))
+
+    @staticmethod
+    def load_split_cache(rank, save_dir):
+        # 정확한 파일명을 찾아 로드
+        img_cache_path = glob.glob(os.path.join(save_dir, f'img_cache_rank_{rank}_size_*_of_*.pt'))[0]
+        t_cache_path = glob.glob(os.path.join(save_dir, f't_cache_rank_{rank}_size_*_of_*.pt'))[0]
+        c_emb_cache_path = glob.glob(os.path.join(save_dir, f'c_emb_cache_rank_{rank}_size_*_of_*.pt'))[0]
+        class_cache_path = glob.glob(os.path.join(save_dir, f'class_cache_rank_{rank}_size_*_of_*.pt'))[0]
+
+        img_cache = torch.load(img_cache_path)
+        t_cache = torch.load(t_cache_path)
+        c_emb_cache = torch.load(c_emb_cache_path)
+        class_cache = torch.load(class_cache_path)
+
+        return img_cache, t_cache, c_emb_cache, class_cache
     
     def __len__(self):
         # 데이터셋의 길이를 img_cache의 길이로 반환 (모든 캐시는 동일 길이를 가정)
