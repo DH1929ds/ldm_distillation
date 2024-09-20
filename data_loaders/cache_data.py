@@ -54,6 +54,8 @@ def load_cache(cachedir):
     
 class Cache_Dataset(Dataset):
     def __init__(self, cachedir, rank, world_size):
+        device = torch.device(f"cuda:{rank}" if torch.cuda.is_available() else "cpu")
+        
         if rank == 0:
             img_cache, t_cache, c_emb_cache, class_cache = self.load_cache(cachedir)
             print('load_cache, size:', img_cache.shape[0])
@@ -64,25 +66,32 @@ class Cache_Dataset(Dataset):
                 dist.destroy_process_group()
                 sys.exit(1)
 
-            # Rank 0에서 데이터를 각 프로세스에 나누기 위해 준비
-            img_cache_split, t_cache_split, c_emb_cache_split, class_cache_split = self.split_cache_for_ranks(
-                img_cache, t_cache, c_emb_cache, class_cache, world_size
-            )
-        else:
-            # 다른 rank에서는 빈 텐서 할당
-            img_cache_split = [torch.empty(0) for _ in range(world_size)]
-            t_cache_split = [torch.empty(0) for _ in range(world_size)]
-            c_emb_cache_split = [torch.empty(0) for _ in range(world_size)]
-            class_cache_split = [torch.empty(0) for _ in range(world_size)]
+            # 데이터를 GPU로 이동
+            img_cache_split = [x.to(device) for x in img_cache]
+            t_cache_split = [x.to(device) for x in t_cache]
+            c_emb_cache_split = [x.to(device) for x in c_emb_cache]
+            class_cache_split = [x.to(device) for x in class_cache]
 
-        # 각 rank에 데이터 분배
+        else:
+            img_cache_split = None
+            t_cache_split = None
+            c_emb_cache_split = None
+            
+            class_cache_split = None
+
+        # GPU에서 scatter 작업 수행
         img_cache, t_cache, c_emb_cache, class_cache = self.scatter_cache_data(
-            img_cache_split, t_cache_split, c_emb_cache_split, class_cache_split, rank
+            img_cache_split, t_cache_split, c_emb_cache_split, class_cache_split, rank, device
         )
+
+        # 다시 CPU로 이동
+        img_cache = img_cache.cpu()
+        t_cache = t_cache.cpu()
+        c_emb_cache = c_emb_cache.cpu()
+        class_cache = class_cache.cpu()
 
         print(f"Rank {rank} received cache, size: {img_cache.shape[0]}")
 
-        # 각 캐시를 초기화
         self.img_cache = img_cache
         self.t_cache = t_cache
         self.c_emb_cache = c_emb_cache
