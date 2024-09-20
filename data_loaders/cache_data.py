@@ -160,10 +160,17 @@ class Cache_Dataset(Dataset):
         c_emb_cache = torch.empty(0)
         class_cache = torch.empty(0)
 
-        dist.scatter(img_cache, scatter_list=img_cache_split, src=0)
-        dist.scatter(t_cache, scatter_list=t_cache_split, src=0)
-        dist.scatter(c_emb_cache, scatter_list=c_emb_cache_split, src=0)
-        dist.scatter(class_cache, scatter_list=class_cache_split, src=0)
+
+        if rank == 0:
+            dist.scatter(img_cache, scatter_list=img_cache_split, src=0)
+            dist.scatter(t_cache, scatter_list=t_cache_split, src=0)
+            dist.scatter(c_emb_cache, scatter_list=c_emb_cache_split, src=0)
+            dist.scatter(class_cache, scatter_list=class_cache_split, src=0)
+        else:
+            dist.scatter(img_cache, src=0)
+            dist.scatter(t_cache, src=0)
+            dist.scatter(c_emb_cache, src=0)
+            dist.scatter(class_cache, src=0)
 
         return img_cache, t_cache, c_emb_cache, class_cache
     
