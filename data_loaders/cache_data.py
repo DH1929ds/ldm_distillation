@@ -5,7 +5,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.multiprocessing as mp
 
-import os, sys
+import os, sys, glob
 import torch
 
 def load_cache(cachedir):
@@ -128,11 +128,16 @@ class Cache_Dataset(Dataset):
 
     @staticmethod
     def load_split_cache(rank, save_dir):
-        # 저장된 파일명을 패턴에 맞게 로드
-        img_cache = torch.load(os.path.join(save_dir, f'img_cache_rank_{rank}_size_*_of_*.pt'))
-        t_cache = torch.load(os.path.join(save_dir, f't_cache_rank_{rank}_size_*_of_*.pt'))
-        c_emb_cache = torch.load(os.path.join(save_dir, f'c_emb_cache_rank_{rank}_size_*_of_*.pt'))
-        class_cache = torch.load(os.path.join(save_dir, f'class_cache_rank_{rank}_size_*_of_*.pt'))
+        # 정확한 파일명을 찾아 로드
+        img_cache_path = glob.glob(os.path.join(save_dir, f'img_cache_rank_{rank}_size_*_of_*.pt'))[0]
+        t_cache_path = glob.glob(os.path.join(save_dir, f't_cache_rank_{rank}_size_*_of_*.pt'))[0]
+        c_emb_cache_path = glob.glob(os.path.join(save_dir, f'c_emb_cache_rank_{rank}_size_*_of_*.pt'))[0]
+        class_cache_path = glob.glob(os.path.join(save_dir, f'class_cache_rank_{rank}_size_*_of_*.pt'))[0]
+
+        img_cache = torch.load(img_cache_path)
+        t_cache = torch.load(t_cache_path)
+        c_emb_cache = torch.load(c_emb_cache_path)
+        class_cache = torch.load(class_cache_path)
 
         return img_cache, t_cache, c_emb_cache, class_cache
     
