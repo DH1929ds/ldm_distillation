@@ -115,7 +115,7 @@ def save_checkpoint(S_model, optimizer, step, logdir):
     print(f"Checkpoint saved at step {step} to {save_path}")
 
 def save_cache(cache_dataset, step, logdir, rank):
-    cache_save_path = os.path.join(logdir, f'cache_step_{step}_rank_{rank}.pt')
+    cache_save_path = os.path.join(logdir, f'cache_step_{step}',f'cache_step_{step}_rank_{rank}.pt')
     
     cache_data = {
         'img_cache': cache_dataset.img_cache,
