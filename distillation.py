@@ -35,7 +35,12 @@ from diffusers.optimization import get_scheduler
 
 from ldm.models.diffusion.ddim import DDIMSampler
 from trainer import distillation_DDPM_trainer
-from funcs import load_model_from_config, get_model_teacher, load_model_from_config_without_ckpt, get_model_student, initialize_params, sample_save_images, save_checkpoint, print_gpu_memory_usage, visualize_t_cache_distribution
+from funcs import (load_model_from_config, get_model_teacher, 
+                   load_model_from_config_without_ckpt, 
+                   get_model_student, initialize_params, 
+                   sample_save_images, save_checkpoint,
+                   save_cache, print_gpu_memory_usage, 
+                   visualize_t_cache_distribution)
 from eval_funcs import sample_and_cal_fid
 from data_loaders.cache_data import load_cache, Cache_Dataset, custom_collate_fn
 
@@ -367,13 +372,9 @@ def distillation(rank, world_size, args):
                     pbar.set_postfix(distill_loss='%.3f' % (total_loss.item()* args.gradient_accumulation_steps))
                 
                 ################### Save student model ################################
-                if step>0 and args.save_step > 0 and step/args.gradient_accumulation_steps % args.save_step == 0:
+                if step>0 and args.save_step > 0 and step/args.gradient_accumulation_steps % args.save_step == 0 or step == args.total_steps * args.gradient_accumulation_steps - 1:
                     save_checkpoint(S_model.module, optimizer, int(step//args.gradient_accumulation_steps), args.logdir)      
-                           
-                # Save model at the final step
-                if step == args.total_steps * args.gradient_accumulation_steps - 1:
-                    print(f"Saving final model at step {step}")
-                    save_checkpoint(S_model.module, optimizer, int(step//args.gradient_accumulation_steps), args.logdir)
+                    save_cache(cache_dataset, int(step//args.gradient_accumulation_steps), args.logdir)
                     
                 
             ################### Sample and save student outputs############################
