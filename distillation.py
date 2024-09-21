@@ -40,7 +40,8 @@ from funcs import (load_model_from_config, get_model_teacher,
                    get_model_student, initialize_params, 
                    sample_save_images, save_checkpoint,
                    save_cache, print_gpu_memory_usage, 
-                   visualize_t_cache_distribution)
+                   visualize_t_cache_distribution, get_small_model_student,
+                   copy_weight_from_teacher)
 from eval_funcs import sample_and_cal_fid
 from data_loaders.cache_data import load_cache, Cache_Dataset, custom_collate_fn
 
@@ -81,6 +82,8 @@ def get_parser():
     parser.add_argument("--parallel", action='store_true', help='multi gpu training')
     parser.add_argument("--distill_features", action='store_true', help='perform knowledge distillation using intermediate features')
     parser.add_argument("--loss_weight", type=float, default=0.1, help="feature loss weighting")
+    parser.add_argument("--use_small_model", action='store_true', help="using small model")
+
     
     # Logging & Sampling
     parser.add_argument("--logdir", type=str, default='./logs/cin256-v2', help='log directory')
@@ -266,19 +269,28 @@ def distillation(rank, world_size, args):
     
     torch.cuda.set_device(rank)
     device = torch.device(f'cuda:{rank}')
-
+    
     T_model = get_model_teacher()
-    S_model = get_model_student()  #load with ckpt
-    print('load model to CPU')
     T_model = T_model.to(device)
-    print('load T_model to device')
-    S_model = S_model.to(device)
-    print('load S_model to device')
     T_model.eval()
+    print('load T_model to device')
     
-    initialize_params(S_model)  #initialize unet parameters
-    print('initialize S_model')
-    
+    if args.use_small_model:
+        S_model = get_small_model_student()  #load with ckpt
+        print('load small_S_model to CPU')
+        S_model = S_model.to(device)
+        print('load samll_S_model to device')
+        S_model = copy_weight_from_teacher(S_model, T_model)
+        print('copy weight from teacher to small_S_model!')
+        
+    else:
+        S_model = get_model_student()  #load with ckpt
+        print('load S_model to CPU')
+        S_model = S_model.to(device)
+        print('load S_model to device')
+        initialize_params(S_model)  #initialize unet parameters
+        print('initialize S_model')
+        
     trainable_params_student = list(filter(lambda p: p.requires_grad, S_model.parameters()))
     print('trainable params S_model')
     
