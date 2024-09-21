@@ -94,6 +94,50 @@ def initialize_params(model):
     for name, param in model.named_parameters():
         if 'model' not in name:  # model 파라미터가 아닌 경우
             param.requires_grad = False
+            
+def get_small_model_student():
+    config = OmegaConf.load("configs/latent-diffusion/cin256-v2_small.yaml")
+    model = load_model_from_config_without_ckpt(config)
+    #model = load_model_from_config_with_ckpt(config, "models/ldm/cin256-v2/model.ckpt")
+    return model
+
+def copy_weight_from_teacher(unet_stu, unet_tea):
+
+    connect_info = {} # connect_info['TO-student'] = 'FROM-teacher'
+    
+    connect_info['model.diffusion_model.input_blocks.2.'] = 'model.diffusion_model.input_blocks.3.'
+    connect_info['model.diffusion_model.input_blocks.3.'] = 'model.diffusion_model.input_blocks.4.'
+    connect_info['model.diffusion_model.input_blocks.4.'] = 'model.diffusion_model.input_blocks.6.'
+    connect_info['model.diffusion_model.input_blocks.5.'] = 'model.diffusion_model.input_blocks.7.'
+    connect_info['model.diffusion_model.input_blocks.6.'] = 'model.diffusion_model.input_blocks.9.'
+    connect_info['model.diffusion_model.input_blocks.7.'] = 'model.diffusion_model.input_blocks.10.'
+
+    connect_info['model.diffusion_model.output_blocks.1.'] = 'model.diffusion_model.output_blocks.2.'
+    connect_info['model.diffusion_model.output_blocks.2.'] = 'model.diffusion_model.output_blocks.3.'
+    connect_info['model.diffusion_model.output_blocks.3.'] = 'model.diffusion_model.output_blocks.5.'
+    connect_info['model.diffusion_model.output_blocks.4.'] = 'model.diffusion_model.output_blocks.6.'
+    connect_info['model.diffusion_model.output_blocks.5.'] = 'model.diffusion_model.output_blocks.8.'
+    connect_info['model.diffusion_model.output_blocks.6.'] = 'model.diffusion_model.output_blocks.9.'
+    connect_info['model.diffusion_model.output_blocks.7.'] = 'model.diffusion_model.output_blocks.11.'
+        
+    for k in unet_stu.state_dict().keys():
+        flag = 0
+        k_orig = k
+        for prefix_key in connect_info.keys():
+            if k.startswith(prefix_key):
+                flag = 1
+                k_orig = k_orig.replace(prefix_key, connect_info[prefix_key])            
+                break
+
+        if flag == 1:
+            print(f"** forced COPY {k_orig} -> {k}")
+        else:
+            print(f"normal COPY {k_orig} -> {k}")
+            
+
+        unet_stu.state_dict()[k].copy_(unet_tea.state_dict()[k_orig])
+
+    return unet_stu
                     
 def save_checkpoint(S_model, optimizer, step, logdir):
     ckpt = {
