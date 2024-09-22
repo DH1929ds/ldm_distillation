@@ -119,10 +119,10 @@ class Cache_Dataset(Dataset):
             start_idx = rank * size_per_rank
             end_idx = (rank + 1) * size_per_rank if rank != world_size - 1 else img_cache.shape[0]
 
-            img_cache_split = img_cache[start_idx:end_idx].to(torch.float32)
-            t_cache_split = t_cache[start_idx:end_idx].to(torch.float32)
-            c_emb_cache_split = c_emb_cache[start_idx:end_idx].to(torch.float32)
-            class_cache_split = class_cache[start_idx:end_idx].to(torch.float32)
+            img_cache_split = img_cache[start_idx:end_idx].clone()
+            t_cache_split = t_cache[start_idx:end_idx].clone()
+            c_emb_cache_split = c_emb_cache[start_idx:end_idx].clone()
+            class_cache_split = class_cache[start_idx:end_idx].clone()
 
             split_size = img_cache_split.shape[0]
 
