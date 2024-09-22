@@ -64,10 +64,8 @@ class Cache_Dataset(Dataset):
             total_size = img_cache.shape[0]
             print('Loaded cache, total size:', total_size)
 
-            # 캐시 데이터 분할 및 저장 또는 기존 파일 로드
-            cache_loaded = self.check_and_load_existing_cache(save_dir, world_size, total_size)
-            if not cache_loaded:
-                self.split_and_save_cache(img_cache, t_cache, c_emb_cache, class_cache, world_size, save_dir, total_size)
+            # 캐시 데이터 분할 및 저장
+            self.split_and_save_cache(img_cache, t_cache, c_emb_cache, class_cache, world_size, save_dir, total_size)
             dist.barrier()  # 다른 rank들이 기다리도록 동기화
 
         else:
@@ -106,16 +104,6 @@ class Cache_Dataset(Dataset):
         class_cache = torch.cat(class_cache_list, dim=0)
 
         return img_cache, t_cache, c_emb_cache, class_cache
-
-    @staticmethod
-    def check_and_load_existing_cache(save_dir, world_size, total_size):
-        # 이미 같은 world_size와 total_size로 저장된 파일이 있는지 확인
-        img_cache_files = glob.glob(os.path.join(save_dir, f'img_cache_rank_*_size_*_of_{total_size}.pt'))
-        if len(img_cache_files) == world_size:
-            print("Existing cache found, loading without splitting again.")
-            return True
-        else:
-            return False
 
     @staticmethod
     def split_and_save_cache(img_cache, t_cache, c_emb_cache, class_cache, world_size, save_dir, total_size):
