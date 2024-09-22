@@ -107,6 +107,7 @@ def get_parser():
     parser.add_argument("--cache_n", type=int, default=64, help='size of caching data per timestep')
     parser.add_argument("--caching_batch_size", type=int, default=256, help='batch size for pre-caching')
     parser.add_argument('--cachedir', type=str, default='./cache', help='log directory')
+    parser.add_argument('--is_splitted_cache', action='store_true', help='If you have splitted cache')    
 
     #DDIM Sampling
     parser.add_argument("--DDPM_sampling", action="store_true", help="sampling using DDPM sampling")
@@ -333,7 +334,7 @@ def distillation(rank, world_size, args):
     #     dist.destroy_process_group()
     #     sys.exit(1)
     
-    cache_dataset = Cache_Dataset(args.cachedir, rank, world_size)
+    cache_dataset = Cache_Dataset(args.cachedir, rank, world_size, is_split_cache=args.is_splitted_cache)
     
     # DDP를 위한 샘플러와 DataLoader 생성
     dataloader = DataLoader(cache_dataset, batch_size=args.batch_size, collate_fn=custom_collate_fn, shuffle=True)

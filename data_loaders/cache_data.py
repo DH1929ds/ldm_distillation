@@ -53,29 +53,35 @@ def load_cache(cachedir):
 
     
 class Cache_Dataset(Dataset):
-    def __init__(self, cachedir, rank, world_size):
-        # 저장 디렉토리 설정
-        save_dir = os.path.join(cachedir, f'gpu_split/worldsize_{world_size}')
-        os.makedirs(save_dir, exist_ok=True)
+    def __init__(self, cachedir, rank, world_size, is_splitted_cache = False):
         
-        if rank == 0:
-            # rank 0에서 전체 캐시 로드
-            img_cache, t_cache, c_emb_cache, class_cache = self.load_cache(cachedir)
-            total_size = img_cache.shape[0]
-            print('Loaded cache, total size:', total_size)
-
-            # 캐시 데이터 분할 및 저장
-            self.split_and_save_cache(img_cache, t_cache, c_emb_cache, class_cache, world_size, save_dir, total_size)
-            dist.barrier()  # 다른 rank들이 기다리도록 동기화
-
+        if is_splitted_cache: 
+            save_dir = os.path.join(cachedir, f'gpu_split/worldsize_{world_size}')
+            self.img_cache, self.t_cache, self.c_emb_cache, self.class_cache = self.load_split_cache(rank, save_dir)
+            
         else:
-            dist.barrier()  # rank 0이 파일을 저장할 때까지 기다림
+            # 저장 디렉토리 설정
+            save_dir = os.path.join(cachedir, f'gpu_split/worldsize_{world_size}')
+            os.makedirs(save_dir, exist_ok=True)
+            
+            if rank == 0:
+                # rank 0에서 전체 캐시 로드
+                img_cache, t_cache, c_emb_cache, class_cache = self.load_cache(cachedir)
+                total_size = img_cache.shape[0]
+                print('Loaded cache, total size:', total_size)
 
-        # 분할된 데이터를 각 rank가 로드
-        self.img_cache, self.t_cache, self.c_emb_cache, self.class_cache = self.load_split_cache(rank, save_dir)
+                # 캐시 데이터 분할 및 저장
+                self.split_and_save_cache(img_cache, t_cache, c_emb_cache, class_cache, world_size, save_dir, total_size)
+                dist.barrier()  # 다른 rank들이 기다리도록 동기화
 
-        print(f"Rank {rank} loaded its cache, size: {self.img_cache.shape[0]}")
+            else:
+                dist.barrier()  # rank 0이 파일을 저장할 때까지 기다림
 
+            # 분할된 데이터를 각 rank가 로드
+            self.img_cache, self.t_cache, self.c_emb_cache, self.class_cache = self.load_split_cache(rank, save_dir)
+
+            print(f"Rank {rank} loaded its cache, size: {self.img_cache.shape[0]}")
+            
     @staticmethod
     def load_cache(cachedir):
         # 캐시 텐서를 로드하는 로직 (이전과 동일)
