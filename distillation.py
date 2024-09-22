@@ -281,8 +281,10 @@ def distillation(rank, world_size, args):
         print('load small_S_model to CPU')
         S_model = S_model.to(device)
         print('load samll_S_model to device')
-        S_model = copy_weight_from_teacher(S_model, T_model)
-        print('copy weight from teacher to small_S_model!')
+        # S_model = copy_weight_from_teacher(S_model, T_model)
+        # print('copy weight from teacher to small_S_model!')
+        initialize_params(S_model)  #initialize unet parameters
+        print('initialize S_model')
         
     else:
         S_model = get_model_student()  #load with ckpt
