@@ -108,6 +108,16 @@ class Cache_Dataset(Dataset):
         t_cache = torch.cat(t_cache_list, dim=0)
         c_emb_cache = torch.cat(c_emb_cache_list, dim=0)
         class_cache = torch.cat(class_cache_list, dim=0)
+            
+        # 동일한 순서로 섞기 위해 인덱스를 생성
+        indices = torch.randperm(img_cache.size(0))
+
+        # 인덱스를 사용하여 모든 캐시를 동일한 순서로 섞음
+        img_cache = img_cache[indices]
+        t_cache = t_cache[indices]
+        c_emb_cache = c_emb_cache[indices]
+        class_cache = class_cache[indices]
+    
 
         return img_cache, t_cache, c_emb_cache, class_cache
 
