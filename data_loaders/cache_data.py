@@ -132,7 +132,7 @@ class Cache_Dataset(Dataset):
             torch.save(c_emb_cache_split, os.path.join(save_dir, f'c_emb_cache_rank_{rank}_size_{split_size}_of_{total_size}.pt'))
             torch.save(class_cache_split, os.path.join(save_dir, f'class_cache_rank_{rank}_size_{split_size}_of_{total_size}.pt'))
             
-            print('save pt size:', img_cache_split.shape[0])
+            print('save pt size:', img_cache_split.shape)
 
     @staticmethod
     def load_split_cache(rank, save_dir):
