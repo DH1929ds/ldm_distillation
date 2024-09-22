@@ -334,7 +334,7 @@ def distillation(rank, world_size, args):
     #     dist.destroy_process_group()
     #     sys.exit(1)
     
-    cache_dataset = Cache_Dataset(args.cachedir, rank, world_size, is_split_cache=args.is_splitted_cache)
+    cache_dataset = Cache_Dataset(args.cachedir, rank, world_size, is_splitted_cache=args.is_splitted_cache)
     
     # DDP를 위한 샘플러와 DataLoader 생성
     dataloader = DataLoader(cache_dataset, batch_size=args.batch_size, collate_fn=custom_collate_fn, shuffle=True)
