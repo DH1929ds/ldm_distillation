@@ -279,11 +279,12 @@ def sample_and_cal_fid(rank, world_size, device, num_images=50000, model=None, o
 
         # FID 계산을 위한 모든 작업 완료 후 Rank 0에서만 FID 계산
     
+        ######################################################################################################################333
         # FID for specific
         fid_specific_start_time = time.time()
         print("start fid_specific_pair")
         fid_value_specific = calculate_fid_given_paths(
-            ["50000_npz_files/trainset_seen_classes_50000.npz", output_specific_dir], 
+            ["50000_npz_files/trainset_seen_50000.npz", output_specific_dir], 
             batch_size=50, 
             device=device, 
             dims=2048
@@ -296,7 +297,7 @@ def sample_and_cal_fid(rank, world_size, device, num_images=50000, model=None, o
         fid_exclude_start_time = time.time()
         print("start fid_exclude_pair")
         fid_value_exclude = calculate_fid_given_paths(
-            ["50000_npz_files/trainset_unseen_classes_50000.npz", output_exclude_dir], 
+            ["50000_npz_files/trainset_unseen_50000.npz", output_exclude_dir], 
             batch_size=50, 
             device=device, 
             dims=2048
@@ -309,11 +310,13 @@ def sample_and_cal_fid(rank, world_size, device, num_images=50000, model=None, o
         fid_all_start_time = time.time()
         print("start fid_all_pair")
         fid_value_all = calculate_fid_given_paths(
-            ["50000_npz_files/trainset_all_classes_50000.npz", output_all_dir], 
+            ["50000_npz_files/trainset_all_50000.npz", output_all_dir], 
             batch_size=50, 
             device=device, 
             dims=2048
         )
+        ######################################################################################################################333
+
         end_time_all = time.time()
         execution_time_all = end_time_all - fid_all_start_time
         print(f"finish calculate fid all pair, {execution_time_all}s")
