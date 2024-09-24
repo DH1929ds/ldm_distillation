@@ -10,6 +10,9 @@ from omegaconf import OmegaConf
 import matplotlib.pyplot as plt
 import wandb
 import torch.distributed as dist
+import shutil
+import time
+
 
 from ldm.util import instantiate_from_config
 
@@ -81,6 +84,32 @@ def get_model_student():
     model = load_model_from_config_with_ckpt(config, "models/ldm/cin256-v2/model.ckpt")
     return model
 
+##########################################################################################################################3
+def load_model_from_config_with_ckpt2(config, ckpt):
+    print(f"Loading model from {ckpt}")
+    pl_sd = torch.load(ckpt, map_location='cpu')  # Load the checkpoint
+    
+    if "student_model" in pl_sd:
+        sd = pl_sd["student_model"]  # 정확하게 student_model의 state_dict를 가져옴
+    else:
+        raise KeyError("The checkpoint does not contain the expected 'student_model' key.")
+    
+    model = instantiate_from_config(config.model)
+    m, u = model.load_state_dict(sd, strict=False)
+    
+    for param in model.parameters():
+        param.requires_grad = True
+    
+    return model
+
+def get_model_student_with_ckpt():
+    config = OmegaConf.load("configs/latent-diffusion/cin256-v2.yaml")
+    model = load_model_from_config_with_ckpt2(config, "logs/cin256-v2/1/student_ckpt_step_100000.pt")
+    #model = load_model_from_config_with_ckpt(config, "models/ldm/cin256-v2/model.ckpt")
+    return model
+##########################################################################################################################3
+
+
 def initialize_params(model):
     target_model = model.model  # S_model의 .model 부분에 접근
     
@@ -100,6 +129,7 @@ def get_small_model_student():
     model = load_model_from_config_without_ckpt(config)
     #model = load_model_from_config_with_ckpt(config, "models/ldm/cin256-v2/model.ckpt")
     return model
+
 
 def copy_weight_from_teacher(unet_stu, unet_tea):
 
@@ -269,10 +299,16 @@ def sample_save_images(num_sample_class, n_sample_per_class, steps, DDPM_samplin
         # WandB에 로그 (합쳐진 이미지만 업로드)
         wandb.log({"Teacher Sample": wandb.Image(final_image_T_path)}, step=int(step))
         wandb.log({"Student Sample": wandb.Image(final_image_S_path)}, step=int(step))
-        # 저장한 이미지 삭제
-        os.remove(output_image_T_path)
-        os.remove(output_image_S_path)
+
+        
+        # # 저장한 이미지 삭제
+        # try:
+        #     shutil.rmtree(save_dir)
+        #     print(f"The directory '{save_dir}' and all its contents have been successfully deleted.")
+        # except Exception as e:
+        #     print(f"Error deleting directory '{save_dir}': {e}")
         print("Combined T_model and S_model outputs have been saved and logged to WandB.")
+        
     dist.barrier()
 
 
