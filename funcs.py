@@ -168,7 +168,20 @@ def copy_weight_from_teacher(unet_stu, unet_tea):
         unet_stu.state_dict()[k].copy_(unet_tea.state_dict()[k_orig])
 
     return unet_stu
-                    
+
+def copy_first_cond_weight_from_teacher(unet_stu, unet_tea):
+    
+    for k in unet_stu.state_dict().keys():
+        # Skip parameters that start with 'model.diffusion_model.'
+        if k.startswith('model.diffusion_model.'):
+            continue            
+
+        unet_stu.state_dict()[k].copy_(unet_tea.state_dict()[k])
+        
+        print(f"Student COPY {k}")
+    return unet_stu    
+
+
 def save_checkpoint(S_model, optimizer, step, logdir):
     ckpt = {
         'student_model': S_model.state_dict(),  # S_model의 상태 저장
