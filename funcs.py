@@ -84,6 +84,10 @@ def get_model_student():
     model = load_model_from_config_with_ckpt(config, "models/ldm/cin256-v2/model.ckpt")
     return model
 
+def get_model(config_path):
+    config = OmegaConf.load(config_path)
+    model = load_model_from_config_without_ckpt(config)
+    return model
 ##########################################################################################################################3
 def load_model_from_config_with_ckpt2(config, ckpt):
     print(f"Loading model from {ckpt}")
@@ -195,7 +199,7 @@ def save_checkpoint(S_model, optimizer, step, logdir):
     
     # 디렉터리 존재 여부 확인 후 생성
     if not os.path.exists(logdir):
-        os.makedirs(logdir)
+        os.makedirs(logdir, exist_ok=True)
     
     # 체크포인트 저장
     torch.save(ckpt, save_path)
@@ -208,7 +212,7 @@ def save_cache(cache_dataset, step, logdir, rank):
     
     # 디렉토리 존재 여부를 확인하고, 없으면 생성
     if not os.path.exists(cache_dir):
-        os.makedirs(cache_dir)
+        os.makedirs(cache_dir, exist_ok=True)
     
     cache_data = {
         'img_cache': cache_dataset.img_cache,
@@ -282,7 +286,7 @@ def sample_save_images(num_sample_class, n_sample_per_class, steps, DDPM_samplin
     save_dir = "save_images"
     # 폴더가 없으면 생성
     if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
+        os.makedirs(save_dir, exist_ok=True)
     # 각 GPU에서 저장할 파일 경로
     output_image_T_path = os.path.join(save_dir, f'output_T_model_{rank}.png')
     output_image_S_path = os.path.join(save_dir, f'output_S_model_{rank}.png')

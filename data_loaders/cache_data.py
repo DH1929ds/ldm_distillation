@@ -53,13 +53,19 @@ def load_cache(cachedir):
 
     
 class Cache_Dataset(Dataset):
-    def __init__(self, cachedir, rank, world_size, is_splitted_cache = False):
+    def __init__(self, cachedir, rank, world_size, is_splitted_cache = False, resume = None):
         
         if is_splitted_cache: 
             save_dir = os.path.join(cachedir, f'gpu_split/worldsize_{world_size}')
             self.img_cache, self.t_cache, self.c_emb_cache, self.class_cache = self.load_split_cache(rank, save_dir)
             print(f"Rank {rank} loaded its cache, size: {self.img_cache.shape[0]}")
-            
+        
+        elif resume:
+            step, base_dir = self.extract_step_and_base_dir_from_resume(resume)
+            cache_dir = os.path.join(base_dir, f'cache_step_{step}')
+            self.img_cache, self.t_cache, self.c_emb_cache, self.class_cache = self.load_cache_from_resume(rank, cache_dir, step)
+            print(f"Resumed cache from {cache_dir} for rank {rank}, size: {self.img_cache.shape[0]}")
+        
         else:
             # 저장 디렉토리 설정
             save_dir = os.path.join(cachedir, f'gpu_split/worldsize_{world_size}')
@@ -83,6 +89,14 @@ class Cache_Dataset(Dataset):
 
             print(f"Rank {rank} loaded its cache, size: {self.img_cache.shape[0]}")
             
+    @staticmethod
+    def extract_step_and_base_dir_from_resume(resume_path):
+        # resume 경로에서 step과 base_dir 값을 추출하는 함수
+        base_dir = os.path.dirname(resume_path)
+        base_name = os.path.basename(resume_path)
+        step_str = base_name.split('_step_')[-1].split('.pt')[0]
+        return int(step_str), base_dir
+    
     @staticmethod
     def load_cache(cachedir):
         # 캐시 텐서를 로드하는 로직 (이전과 동일)
@@ -121,7 +135,21 @@ class Cache_Dataset(Dataset):
     
 
         return img_cache, t_cache, c_emb_cache, class_cache
+   
+    @staticmethod
+    def load_cache_from_resume(rank, cache_dir, step):
+        # resume에서 지정된 cache_dir에서 rank별 캐시 파일을 로드
+        cache_load_path = os.path.join(cache_dir, f'cache_step_{step}_rank_{rank}.pt')
 
+        if not os.path.exists(cache_load_path):
+            raise FileNotFoundError(f"Cache file not found at {cache_load_path}")
+        
+        # 캐시 데이터 불러오기
+        cache_data = torch.load(cache_load_path)
+        print(f"Cache loaded from {cache_load_path}")
+        
+        return cache_data['img_cache'], cache_data['t_cache'], cache_data['c_emb_cache'], cache_data['class_cache']
+      
     @staticmethod
     def split_and_save_cache(img_cache, t_cache, c_emb_cache, class_cache, world_size, save_dir, total_size):
         size_per_rank = img_cache.shape[0] // world_size
