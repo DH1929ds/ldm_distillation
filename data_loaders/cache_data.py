@@ -55,17 +55,17 @@ def load_cache(cachedir):
 class Cache_Dataset(Dataset):
     def __init__(self, cachedir, rank, world_size, is_splitted_cache = False, resume = None):
         
-        if is_splitted_cache: 
-            save_dir = os.path.join(cachedir, f'gpu_split/worldsize_{world_size}')
-            self.img_cache, self.t_cache, self.c_emb_cache, self.class_cache = self.load_split_cache(rank, save_dir)
-            print(f"Rank {rank} loaded its cache, size: {self.img_cache.shape[0]}")
-        
-        elif resume:
+        if resume:
             step, base_dir = self.extract_step_and_base_dir_from_resume(resume)
             cache_dir = os.path.join(base_dir, f'cache_step_{step}')
             self.img_cache, self.t_cache, self.c_emb_cache, self.class_cache = self.load_cache_from_resume(rank, cache_dir, step)
-            print(f"Resumed cache from {cache_dir} for rank {rank}, size: {self.img_cache.shape[0]}")
-        
+            print(f"Resumed cache from {cache_dir} for rank {rank}, size: {self.img_cache.shape[0]}")        
+            
+        elif is_splitted_cache: 
+            save_dir = os.path.join(cachedir, f'gpu_split/worldsize_{world_size}')
+            self.img_cache, self.t_cache, self.c_emb_cache, self.class_cache = self.load_split_cache(rank, save_dir)
+            print(f"Rank {rank} loaded its cache, size: {self.img_cache.shape[0]}")
+            
         else:
             # 저장 디렉토리 설정
             save_dir = os.path.join(cachedir, f'gpu_split/worldsize_{world_size}')
