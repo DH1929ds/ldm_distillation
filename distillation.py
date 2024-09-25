@@ -36,6 +36,7 @@ from diffusers.optimization import get_scheduler
 from ldm.models.diffusion.ddim import DDIMSampler
 from trainer import distillation_DDPM_trainer
 from funcs import (load_model_from_config, get_model_teacher, 
+                   require_grad_params,
                    load_model_from_config_without_ckpt, get_model,
                    get_model_student, get_model_student_with_ckpt, initialize_params, 
                    sample_save_images, save_checkpoint,
@@ -337,6 +338,7 @@ def distillation(rank, world_size, args):
         
         checkpoint = torch.load(args.resume, map_location=device)
         S_model.load_state_dict(checkpoint['student_model'])
+        require_grad_params(S_model) 
         optimizer.load_state_dict(checkpoint['optimizer'])
         start_step = checkpoint['step']
         

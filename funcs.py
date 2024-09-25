@@ -128,6 +128,11 @@ def initialize_params(model):
         if 'model' not in name:  # model 파라미터가 아닌 경우
             param.requires_grad = False
             
+def require_grad_params(model):
+    for name, param in model.named_parameters():
+        if 'model' not in name:  # model 파라미터가 아닌 경우
+            param.requires_grad = False
+                        
 def get_small_model_student():
     config = OmegaConf.load("configs/latent-diffusion/cin256-v2_small.yaml")
     model = load_model_from_config_without_ckpt(config)
