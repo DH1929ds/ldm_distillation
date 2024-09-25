@@ -145,7 +145,7 @@ class Cache_Dataset(Dataset):
             raise FileNotFoundError(f"Cache file not found at {cache_load_path}")
         
         # 캐시 데이터 불러오기
-        cache_data = torch.load(cache_load_path)
+        cache_data = torch.load(cache_load_path, map_location='cpu')
         print(f"Cache loaded from {cache_load_path}")
         
         return cache_data['img_cache'], cache_data['t_cache'], cache_data['c_emb_cache'], cache_data['class_cache']
@@ -181,10 +181,10 @@ class Cache_Dataset(Dataset):
         c_emb_cache_path = glob.glob(os.path.join(save_dir, f'c_emb_cache_rank_{rank}_size_*_of_*.pt'))[0]
         class_cache_path = glob.glob(os.path.join(save_dir, f'class_cache_rank_{rank}_size_*_of_*.pt'))[0]
 
-        img_cache = torch.load(img_cache_path)
-        t_cache = torch.load(t_cache_path)
-        c_emb_cache = torch.load(c_emb_cache_path)
-        class_cache = torch.load(class_cache_path)
+        img_cache = torch.load(img_cache_path, map_location='cpu')
+        t_cache = torch.load(t_cache_path, map_location='cpu')
+        c_emb_cache = torch.load(c_emb_cache_path, map_location='cpu')
+        class_cache = torch.load(class_cache_path, map_location='cpu')
 
         return img_cache, t_cache, c_emb_cache, class_cache
     
