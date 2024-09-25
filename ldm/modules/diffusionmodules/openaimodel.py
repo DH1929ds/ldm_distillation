@@ -418,6 +418,20 @@ class QKVAttention(nn.Module):
     @staticmethod
     def count_flops(model, _x, y):
         return count_flops_attn(model, _x, y)
+    
+class DynamicConv1x1(nn.Module):
+    def __init__(self, out_channels):
+        super(DynamicConv1x1, self).__init__()
+        self.conv_layer = None  # Conv layer를 forward에서 정의
+        self.out_channels = out_channels  # 고정된 output channels
+
+    def forward(self, x):
+        if self.conv_layer is None:
+            in_channels = x.shape[1]  # 입력 feature의 channel 수
+            self.conv_layer = nn.Conv2d(in_channels, self.out_channels, kernel_size=1)
+            self.conv_layer = self.conv_layer.to(x.device)
+
+        return self.conv_layer(x)
 
 
 class UNetModel(nn.Module):
@@ -476,6 +490,7 @@ class UNetModel(nn.Module):
         context_dim=None,                 # custom transformer support
         n_embed=None,                     # custom support for prediction of discrete ids into codebook of first stage vq model
         legacy=True,
+        use_channel_small=False,
     ):
         super().__init__()
         if use_spatial_transformer:
@@ -512,6 +527,7 @@ class UNetModel(nn.Module):
         self.num_head_channels = num_head_channels
         self.num_heads_upsample = num_heads_upsample
         self.predict_codebook_ids = n_embed is not None
+        self.use_channel_small = use_channel_small
 
         time_embed_dim = model_channels * 4
         self.time_embed = nn.Sequential(
@@ -700,6 +716,17 @@ class UNetModel(nn.Module):
             conv_nd(dims, model_channels, n_embed, 1),
             #nn.LogSoftmax(dim=1)  # change to cross_entropy and produce non-normalized logits
         )
+            
+        if self.use_channel_small:
+            self.dynamic_conv1x1_layers = nn.ModuleList([
+            DynamicConv1x1(out_channels=192),  # 1번째 feature에 대해
+            DynamicConv1x1(out_channels=384),  # 2번째 feature에 대해
+            DynamicConv1x1(out_channels=576),  # 3번째 feature에 대해
+            DynamicConv1x1(out_channels=960),  # 4번째 feature에 대해
+            DynamicConv1x1(out_channels=960),  # 5번째 feature에 대해
+            DynamicConv1x1(out_channels=576),  # 6번째 feature에 대해
+            DynamicConv1x1(out_channels=384)   # 7번째 feature에 대해
+            ])
 
     def convert_to_fp16(self):
         """
@@ -778,6 +805,9 @@ class UNetModel(nn.Module):
         # else:
         #     print("self.out!!!")
         #     return self.out(h)
+        if self.use_channel_small and is_feature:
+            expanded_features = [conv_layer(feature) for conv_layer, feature in zip(self.dynamic_conv1x1_layers, features)]
+            return self.out(h), expanded_features
 
         if is_feature:
             return self.out(h), features
