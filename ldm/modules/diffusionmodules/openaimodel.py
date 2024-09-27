@@ -420,17 +420,14 @@ class QKVAttention(nn.Module):
         return count_flops_attn(model, _x, y)
     
 class DynamicConv1x1(nn.Module):
-    def __init__(self, out_channels):
+    def __init__(self, in_channels, out_channels):
         super(DynamicConv1x1, self).__init__()
         self.conv_layer = None  # Conv layer를 forward에서 정의
         self.out_channels = out_channels  # 고정된 output channels
-
+        self.in_channels = in_channels
+        self.conv_layer = nn.Conv2d(self.in_channels, self.out_channels, kernel_size=1)
+        
     def forward(self, x):
-        if self.conv_layer is None:
-            in_channels = x.shape[1]  # 입력 feature의 channel 수
-            self.conv_layer = nn.Conv2d(in_channels, self.out_channels, kernel_size=1)
-            self.conv_layer = self.conv_layer.to(x.device)
-
         return self.conv_layer(x)
 
 
@@ -719,13 +716,13 @@ class UNetModel(nn.Module):
             
         if self.use_channel_small:
             self.dynamic_conv1x1_layers = nn.ModuleList([
-            DynamicConv1x1(out_channels=192),  # 1번째 feature에 대해
-            DynamicConv1x1(out_channels=384),  # 2번째 feature에 대해
-            DynamicConv1x1(out_channels=576),  # 3번째 feature에 대해
-            DynamicConv1x1(out_channels=960),  # 4번째 feature에 대해
-            DynamicConv1x1(out_channels=960),  # 5번째 feature에 대해
-            DynamicConv1x1(out_channels=576),  # 6번째 feature에 대해
-            DynamicConv1x1(out_channels=384)   # 7번째 feature에 대해
+            DynamicConv1x1(in_channels=96,out_channels=192),  # 1번째 feature에 대해
+            DynamicConv1x1(in_channels=192,out_channels=384),  # 2번째 feature에 대해
+            DynamicConv1x1(in_channels=288,out_channels=576),  # 3번째 feature에 대해
+            DynamicConv1x1(in_channels=480,out_channels=960),  # 4번째 feature에 대해
+            DynamicConv1x1(in_channels=480,out_channels=960),  # 5번째 feature에 대해
+            DynamicConv1x1(in_channels=288,out_channels=576),  # 6번째 feature에 대해
+            DynamicConv1x1(in_channels=192,out_channels=384)   # 7번째 feature에 대해
             ])
 
     def convert_to_fp16(self):

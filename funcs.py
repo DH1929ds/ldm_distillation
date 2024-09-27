@@ -187,7 +187,7 @@ def copy_first_cond_weight_from_teacher(unet_stu, unet_tea):
 
         unet_stu.state_dict()[k].copy_(unet_tea.state_dict()[k])
         
-        print(f"Student COPY {k}")
+        # print(f"Student COPY {k}")
     return unet_stu    
 
 
